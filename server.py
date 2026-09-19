@@ -47,3 +47,36 @@ def kr_catalog_check():
     nums=[re.sub(r"[^0-9]","",str(x)) for x in body.get("numbers",[])]
     cat=load_kr_catalog()
     return jsonify(items={n:cat.get(n) for n in nums if n})
+
+@app.post("/api/auto-sync")
+def auto_sync():
+    body=request.get_json(silent=True) or {}
+    nums=[]
+    for x in body.get("numbers",[]):
+        n=re.sub(r"[^0-9]","",str(x))
+        if n and n not in nums: nums.append(n)
+    cat=load_kr_catalog()
+    out={}
+    if not KEY:
+        return jsonify(ok=False,error="BRICKSET_API_KEY not configured"),503
+    for n in nums[:100]:
+        try:
+            params=json.dumps({"setNumber":n+"-1","pageSize":1})
+            r=requests.get(API+"/getSets",params={"apiKey":KEY,"userHash":"","params":params},timeout=15)
+            d=r.json()
+            s=(d.get("sets") or [None])[0]
+            if not s: continue
+            k=cat.get(n) or {}
+            out[n]={
+                "number":n,
+                "name":s.get("name"),
+                "year":s.get("year"),
+                "theme":s.get("theme"),
+                "pieces":s.get("pieces"),
+                "image":(s.get("image") or {}).get("imageURL") or (s.get("image") or {}).get("thumbnailURL"),
+                "LEGOCom":s.get("LEGOCom"),
+                "kr":k or None
+            }
+        except Exception:
+            continue
+    return jsonify(ok=True,items=out,catalog_count=len(cat))
