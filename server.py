@@ -227,3 +227,97 @@ def catalog_auto_refresh():
                    discovered_count=len(discovered),
                    total_available=len(set(verified)|set(discovered)),
                    refreshed_at=time.strftime("%Y-%m-%d %H:%M:%S"))
+
+SUPABASE_URL=os.environ.get("SUPABASE_URL","").rstrip("/")
+SUPABASE_SERVICE_KEY=os.environ.get("SUPABASE_SERVICE_KEY","")
+SUPABASE_TABLE=os.environ.get("SUPABASE_TABLE","lego_kr_catalog")
+
+def _sb_headers(prefer=None):
+    h={"apikey":SUPABASE_SERVICE_KEY,"Authorization":"Bearer "+SUPABASE_SERVICE_KEY,
+       "Content-Type":"application/json"}
+    if prefer: h["Prefer"]=prefer
+    return h
+
+def sb_enabled():
+    return bool(SUPABASE_URL and SUPABASE_SERVICE_KEY)
+
+def sb_get(numbers):
+    if not sb_enabled() or not numbers: return {}
+    try:
+        vals=",".join(numbers)
+        r=requests.get(f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}",
+          headers=_sb_headers(),params={"select":"*","set_number":f"in.({vals})"},timeout=12)
+        if not r.ok: return {}
+        return {str(x["set_number"]):x for x in r.json()}
+    except: return {}
+
+def sb_upsert(rows):
+    if not sb_enabled() or not rows: return False
+    try:
+        r=requests.post(f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}",
+          headers=_sb_headers("resolution=merge-duplicates,return=minimal"),
+          params={"on_conflict":"set_number"},json=rows,timeout=15)
+        return r.ok
+    except: return False
+
+def _instruction_name(number):
+    # LEGO Korea building-instructions pages are a stronger source for official Korean names,
+    # including retired sets.
+    headers={"User-Agent":"Mozilla/5.0 (compatible; LEGOCollector/1.0)",
+             "Accept-Language":"ko-KR,ko;q=0.9,en;q=0.5"}
+    urls=[
+      f"https://www.lego.com/ko-kr/service/building-instructions/{number}",
+      f"https://www.lego.com/ko-kr/service/building-instructions/search-results?page=1&searchString={number}"
+    ]
+    for url in urls:
+        try:
+            t=requests.get(url,headers=headers,timeout=12).text
+            # Exact-number result/card or page H1.
+            pats=[
+              r'<h1[^>]*>(.*?)</h1>',
+              rf'{re.escape(number)}\s+([^<"\n]{{2,120}})'
+            ]
+            for p in pats:
+                for m in re.finditer(p,t,re.I|re.S):
+                    name=_clean_text(m.group(1))
+                    if name and name not in ("조립 설명서","검색 결과") and len(name)<140:
+                        return name,url
+        except: pass
+    return None,None
+
+@app.post("/api/persistent-catalog-sync")
+def persistent_catalog_sync():
+    body=request.get_json(silent=True) or {}
+    nums=[]
+    for x in body.get("numbers",[]):
+        n=re.sub(r"[^0-9]","",str(x))
+        if n and n not in nums: nums.append(n)
+    nums=nums[:100]
+    verified=load_kr_catalog()
+    stored=sb_get(nums)
+    out={}
+    to_save=[]
+    for n in nums:
+        # Priority: verified repo catalog -> persistent DB -> official live sources.
+        k=verified.get(n)
+        if not k and n in stored:
+            x=stored[n]
+            k={"name_ko":x.get("name_ko"),"price":x.get("price_krw"),
+               "currency":"KRW","source":x.get("source") or "persistent DB",
+               "checked_at":x.get("checked_at"),"source_url":x.get("source_url")}
+        if not k:
+            name,url=_instruction_name(n)
+            live=_official_kr_lookup(n) or {}
+            if name or live.get("price"):
+                k={"name_ko":name or live.get("name_ko"),"price":live.get("price"),
+                   "currency":"KRW","source":"LEGO Korea",
+                   "checked_at":time.strftime("%Y-%m-%d"),
+                   "source_url":url or live.get("source_url")}
+                to_save.append({"set_number":n,"name_ko":k.get("name_ko"),
+                    "price_krw":k.get("price"),"source":k.get("source"),
+                    "source_url":k.get("source_url"),"checked_at":k.get("checked_at")})
+        out[n]=k
+    saved=sb_upsert(to_save)
+    return jsonify(ok=True,items=out,persistent=sb_enabled(),saved=saved,
+                   db_hits=len(stored),new_items=len(to_save),
+                   verified_count=len(verified))
