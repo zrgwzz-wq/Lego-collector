@@ -158,3 +158,72 @@ def kr_live_sync():
         out[n]=k
     return jsonify(ok=True,items=out,verified_catalog_count=len(cat),
                    live_cache_count=len(LIVE_KR_CACHE))
+
+DISCOVERED_KR={}
+DISCOVERY_TS=0
+DISCOVERY_TTL=43200
+
+def _extract_products_from_lego_html(t):
+    out={}
+    # Product URLs normally end with a numeric LEGO set number.
+    links=list(re.finditer(r'href=["\']([^"\']*/product/[^"\']*?-(\d{4,6})(?:["\']|\?))',t,re.I))
+    for m in links:
+        n=m.group(2)
+        a=max(0,m.start()-1400); b=min(len(t),m.end()+2200)
+        chunk=t[a:b]
+        # Prefer nearby heading/title text.
+        names=[]
+        for p in [r'<h[23][^>]*>(.*?)</h[23]>',r'"name"\s*:\s*"([^"]+)"']:
+            names += re.findall(p,chunk,re.I|re.S)
+        name=None
+        for x in names:
+            x=_clean_text(x)
+            if x and len(x)>2 and not x.isdigit() and "전체 상품" not in x:
+                name=x; break
+        price=_krw_from_text(chunk)
+        if name or price:
+            out[n]={"name_ko":name,"price":price,"currency":"KRW",
+                    "source":"LEGO Korea auto","checked_at":time.strftime("%Y-%m-%d"),
+                    "source_url":"https://www.lego.com"+m.group(1) if m.group(1).startswith("/") else m.group(1)}
+    return out
+
+def refresh_discovered_kr(force=False):
+    global DISCOVERY_TS, DISCOVERED_KR
+    now=time.time()
+    if not force and DISCOVERED_KR and now-DISCOVERY_TS<DISCOVERY_TTL:
+        return DISCOVERED_KR
+    headers={"User-Agent":"Mozilla/5.0 (compatible; LEGOCollector/1.0)",
+             "Accept-Language":"ko-KR,ko;q=0.9,en;q=0.5"}
+    found={}
+    # New products first: recent additions are the most important to discover automatically.
+    urls=["https://www.lego.com/ko-kr/categories/new-sets-and-products"]
+    # A few leading all-set pages catch current catalogue changes without a long 40+ page request.
+    urls += ["https://www.lego.com/ko-kr/categories/all-sets?page="+str(i) for i in range(1,7)]
+    for url in urls:
+        try:
+            r=requests.get(url,headers=headers,timeout=10)
+            if r.ok: found.update(_extract_products_from_lego_html(r.text))
+        except: pass
+    if found:
+        DISCOVERED_KR.update(found)
+        DISCOVERY_TS=now
+    return DISCOVERED_KR
+
+@app.post("/api/catalog-auto-refresh")
+def catalog_auto_refresh():
+    body=request.get_json(silent=True) or {}
+    nums=[]
+    for x in body.get("numbers",[]):
+        n=re.sub(r"[^0-9]","",str(x))
+        if n and n not in nums: nums.append(n)
+    verified=load_kr_catalog()
+    discovered=refresh_discovered_kr(False)
+    items={}
+    for n in nums[:100]:
+        k=verified.get(n) or discovered.get(n)
+        if not k: k=_official_kr_lookup(n)
+        items[n]=k
+    return jsonify(ok=True,items=items,verified_count=len(verified),
+                   discovered_count=len(discovered),
+                   total_available=len(set(verified)|set(discovered)),
+                   refreshed_at=time.strftime("%Y-%m-%d %H:%M:%S"))
