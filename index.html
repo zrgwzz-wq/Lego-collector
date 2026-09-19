@@ -1,7 +1,7 @@
 <!doctype html><html lang=ko><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>LEGO Collector v10</title><style>
 *{box-sizing:border-box}body{margin:0;background:#0d0d0f;color:#f5f5f5;font-family:system-ui,-apple-system,sans-serif}header{position:sticky;top:0;background:#171719;border-bottom:1px solid #2b2b30;padding:14px;z-index:3}main{max-width:880px;margin:auto;padding:12px 12px 90px}.brand{font-size:23px;font-weight:900}.sub,.muted{font-size:12px;color:#999}.page{display:none}.page.on{display:block}.card{background:#1c1c20;border:1px solid #303037;border-radius:17px;padding:14px;margin:9px 0}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.stat b{font-size:19px;display:block}.search{display:flex;gap:7px}.search input{flex:1}input,select,button{padding:10px;border-radius:10px;border:1px solid #444;background:#29292f;color:white;max-width:100%}button{background:#e3000b;font-weight:800}.product{display:grid;grid-template-columns:95px 1fr;gap:11px}.product img{width:95px;height:95px;object-fit:contain;background:white;border-radius:11px}.unit{border-top:1px solid #36363c;margin-top:12px;padding-top:10px}.field{margin:5px 0}.field label{display:block;font-size:11px;color:#999}.field input,.field select{width:100%}.badge{font-size:10px;background:#393940;border-radius:20px;padding:4px 7px;display:inline-block;margin:3px}.nav{position:fixed;bottom:0;left:0;right:0;display:grid;grid-template-columns:repeat(4,1fr);background:#1b1b1f;border-top:1px solid #333;z-index:5}.nav button{border:0;background:none;color:#999;padding:10px 2px}.nav button.on{color:#fff}.positive{color:#6ed785}.negative{color:#ff7474}.source{border-left:3px solid #777;padding-left:9px;margin:8px 0}.choice{display:flex;gap:5px;flex-wrap:wrap}.choice button{background:#34343a}.choice button.on{background:#e3000b}.empty{text-align:center;color:#777;padding:25px}</style></head><body>
-<header><div class=brand>🧱 LEGO Collector <span style="color:#e3000b">v15</span></div><div id=status class=sub>서버 확인 중…</div></header><main>
-<section id=dash class="page on"><h2>대시보드</h2><div class=grid><div class="card stat">보유수량<b id=cnt>0개</b></div><div class="card stat">보유 정가<b id=listVal>₩0</b></div><div class="card stat">보유 구매가<b id=buy>₩0</b></div><div class="card stat">평가금액<b id=val>₩0</b></div><div class="card stat">미실현손익<b id=pl>₩0</b></div><div class="card stat">판매완료<b id=soldCnt>0개</b></div><div class="card stat">실현손익<b id=realPL>₩0</b></div></div><div class=card><b>v15</b><div class=muted>Brickset 기본정보 + LEGO Korea 한글 제품명을 함께 사용합니다. 한국 정가 확인 성공 시 자동 저장하고, 확인되지 않으면 해외 기준 정가로 표시합니다.</div><button onclick=updateAllKr()>🇰🇷 한글명·한국 정가 업데이트</button>
+<header><div class=brand>🧱 LEGO Collector <span style="color:#e3000b">v16</span></div><div id=status class=sub>서버 확인 중…</div></header><main>
+<section id=dash class="page on"><h2>대시보드</h2><div class=grid><div class="card stat">보유수량<b id=cnt>0개</b></div><div class="card stat">보유 정가<b id=listVal>₩0</b></div><div class="card stat">보유 구매가<b id=buy>₩0</b></div><div class="card stat">평가금액<b id=val>₩0</b></div><div class="card stat">미실현손익<b id=pl>₩0</b></div><div class="card stat">판매완료<b id=soldCnt>0개</b></div><div class="card stat">실현손익<b id=realPL>₩0</b></div></div><div class=card><b>v16</b><div class=muted>Brickset 기본정보와 검증된 한국 LEGO 카탈로그를 함께 사용합니다. 한국 공식명·정가가 있으면 우선 표시하고, 없으면 해외 정보로 표시합니다.</div><button onclick=updateAllKr()>🇰🇷 한국 카탈로그 다시 적용</button>
 <button onclick=usage()>Brickset API 사용량 확인</button><div id=krUpdateBox class=muted></div><div id=usageBox class=muted></div></div></section>
 <section id=search class=page><h2>검색</h2><div class=search><input id=q placeholder="세트번호 또는 제품명"><button onclick=go()>검색</button></div><div id=res></div></section>
 <section id=collection class=page><h2>소장목록</h2>
@@ -13,10 +13,10 @@
  <div class="card stat">현재 평가금액<b id=cval>₩0</b></div>
  <div class="card stat">미실현손익<b id=cpl>₩0</b></div>
 </div><div id=col></div></section>
-<section id=prices class=page><h2>가격관리</h2><div class=card><b>국내 가격 · v15</b><div class=muted>세트번호로 LEGO Korea / 다나와 / KREAM 검색을 바로 열고, 확인한 가격과 조회일을 저장합니다. 비공식 자동 크롤링은 사용하지 않습니다.</div></div><div id=priceList></div></section>
+<section id=prices class=page><h2>가격관리</h2><div class=card><b>국내 가격 · v16</b><div class=muted>검증된 한국 카탈로그를 우선 적용합니다. 한글명과 한국 정가는 직접 수정할 수도 있고, 다나와/KREAM 가격은 참고값으로 관리합니다.</div></div><div id=priceList></div></section>
 </main><nav class=nav><button class=on onclick="page('dash',this)">📊<br>대시보드</button><button onclick="page('search',this)">🔎<br>검색</button><button onclick="page('collection',this)">🧱<br>소장목록</button><button onclick="page('prices',this)">₩<br>가격관리</button></nav>
 <script>
-let db=JSON.parse(localStorage.getItem("legov15")||localStorage.getItem("legov14")||localStorage.getItem("legov13")||localStorage.getItem("legov12")||localStorage.getItem("legov11")||localStorage.getItem("legov10")||localStorage.getItem("legov9")||localStorage.getItem("legov8")||"{}"),won=n=>"₩"+Math.round(+n||0).toLocaleString("ko-KR"),today=()=>new Date().toISOString().slice(0,10);
+let db=JSON.parse(localStorage.getItem("legov16")||localStorage.getItem("legov15")||localStorage.getItem("legov14")||localStorage.getItem("legov13")||localStorage.getItem("legov12")||localStorage.getItem("legov11")||localStorage.getItem("legov10")||localStorage.getItem("legov9")||localStorage.getItem("legov8")||"{}"),won=n=>"₩"+Math.round(+n||0).toLocaleString("ko-KR"),today=()=>new Date().toISOString().slice(0,10);
 const statusEl=document.getElementById("status");
 fetch("/api/health").then(r=>r.json()).then(d=>{
  statusEl.textContent=d.key_configured?"● Brickset API 연결됨 · 캐시 "+d.cache_items+"건":"● API Key 미설정";
@@ -46,7 +46,7 @@ async function go(){
    let title=nameKo||s.name;
    return `<div class="card product"><img src="${img}"><div><b>${s.number} ${title}</b>${nameKo&&s.name!=nameKo?`<div class=muted>${s.name}</div>`:""}<div class=muted>${s.year||""} · ${s.theme||""} · ${s.pieces||0} pcs ${d.cached?"· 캐시":""}</div>${priceHtml}<button onclick='add(${JSON.stringify(JSON.stringify(o))})'>소장 등록</button></div></div>`;
   }));
-  localStorage.setItem("legov15",JSON.stringify(db));draw();res.innerHTML=cards.join("")||"<div class=empty>검색 결과 없음</div>";
+  localStorage.setItem("legov16",JSON.stringify(db));draw();res.innerHTML=cards.join("")||"<div class=empty>검색 결과 없음</div>";
  }catch(e){res.innerHTML="<div class=card>검색 오류</div>"}
 }
 function add(j){let s=JSON.parse(j);if(!db[s.number])db[s.number]={set:s,u:[],market:{mode:"manual"}};db[s.number].u.push({condition:"MISB",buy:0,buyDate:"",value:0,sold:false,sell:0,sellDate:"",memo:""});save();fetchKrPrice(s.number,true);page("collection",document.querySelectorAll(".nav button")[2])}
@@ -54,24 +54,15 @@ function upd(n,i,k,v){db[n].u[i][k]=["buy","value","sell"].includes(k)?(+v||0):k
 
 async function fetchKrPrice(n,quiet=false){
  try{
-  let d=await fetch("/api/kr-meta?number="+encodeURIComponent(n)).then(r=>r.json()), changed=false;
-  if(d.name_ko&&db[n]){
-   db[n].set.nameKo=d.name_ko; db[n].set.nameKoDate=d.checked_at||today(); changed=true;
-  }
-  if(d.price&&db[n]){
-   if(!db[n].market)db[n].market={};
-   db[n].market.krMsrp=+d.price; db[n].market.krMsrpDate=d.checked_at||today();
-   db[n].market.krMsrpSource="LEGO Korea"; changed=true;
+  let d=await fetch("/api/kr-meta?number="+encodeURIComponent(n)).then(r=>r.json()),changed=false;
+  if(d.found&&db[n]){
+   if(d.name_ko){db[n].set.nameKo=d.name_ko;db[n].set.nameKoDate=d.checked_at||today();changed=true}
+   if(d.price){if(!db[n].market)db[n].market={};db[n].market.krMsrp=+d.price;db[n].market.krMsrpDate=d.checked_at||today();db[n].market.krMsrpSource=d.source||"LEGO Korea";changed=true}
   }
   if(changed)save();
-  if(!quiet){
-   let msg=[];
-   if(d.name_ko)msg.push("한글명: "+d.name_ko);
-   if(d.price)msg.push("한국 정가: "+won(d.price));
-   alert(msg.length?msg.join("\n"):(n+"의 LEGO Korea 정보를 자동 확인하지 못했습니다."));
-  }
-  return !!changed;
- }catch(e){if(!quiet)alert("LEGO Korea 정보 조회 중 오류가 발생했습니다.");return false}
+  if(!quiet)alert(changed?("한국 카탈로그 적용 완료"+(d.name_ko?"\n"+d.name_ko:"")+(d.price?"\n"+won(d.price):"")):"등록된 한국 카탈로그 정보가 없습니다.");
+  return changed;
+ }catch(e){if(!quiet)alert("한국 카탈로그 조회 오류");return false}
 }
 async function updateAllKr(){
  let nums=Object.keys(db), ok=0; krUpdateBox.textContent="한국 정가 확인 중…";
@@ -90,18 +81,19 @@ function sourceSearch(kind,n){
  };
  window.open(urls[kind],"_blank","noopener");
 }
+function setKoName(n,v){db[n].set.nameKo=(v||"").trim();db[n].set.nameKoDate=today();save()}
 function mkt(n,k,v){db[n].market[k]=["krMsrp","kream","shop"].includes(k)?(+v||0):v;if(k=="krMsrp"&&!db[n].market.krMsrpDate)db[n].market.krMsrpDate=today();if(k=="kream"&&!db[n].market.kreamDate)db[n].market.kreamDate=today();if(k=="shop"&&!db[n].market.shopDate)db[n].market.shopDate=today();save()}
 function setMode(n,m){db[n].market.mode=m;apply(n);save()}
 function apply(n){let x=db[n],m=x.market,p=m.mode=="kream"?+m.kream:m.mode=="shop"?+m.shop:0;if(m.mode!="manual"&&p)x.u.filter(u=>!u.sold).forEach(u=>u.value=p)}
-function save(redraw=true){localStorage.setItem("legov15",JSON.stringify(db));if(redraw)draw()}
+function save(redraw=true){localStorage.setItem("legov16",JSON.stringify(db));if(redraw)draw()}
 function del(n,i){db[n].u.splice(i,1);if(!db[n].u.length&&confirm("세트 정보도 삭제할까요?"))delete db[n];save()}
 async function usage(){try{let d=await fetch("/api/usage").then(r=>r.json());usageBox.textContent="최근 사용량: "+JSON.stringify(d)}catch(e){usageBox.textContent="사용량 조회 실패"}}
 function draw(){Object.keys(db).forEach(apply);let all=Object.values(db);col.innerHTML=all.map(x=>`<div class=card><div class=product><img src="${x.set.image||""}"><div><b>${x.set.number} ${x.set.nameKo||x.set.name}</b><div class=muted>보유 ${x.u.filter(u=>!u.sold).length} / 전체 ${x.u.length}</div><div>${x.market.krMsrp?`🇰🇷 정가 ${won(x.market.krMsrp)}`:(x.set.foreign?`🌎 해외 기준 ${x.set.foreign.price} ${x.set.foreign.currency}`:"정가 미확인")}</div><button onclick='add(${JSON.stringify(JSON.stringify(x.set))})'>+1개</button></div></div>${x.u.map((u,i)=>`<div class=unit><b>#${i+1}</b><span class=badge>${u.sold?"판매완료":"보유중"}</span><div class=grid><div class=field><label>상태</label><select onchange="upd('${x.set.number}',${i},'condition',this.value)"><option ${u.condition=="MISB"?"selected":""}>MISB</option><option ${u.condition=="NIB"?"selected":""}>NIB</option><option ${u.condition=="중고 Complete"?"selected":""}>중고 Complete</option></select></div><div class=field><label>판매상태</label><select onchange="upd('${x.set.number}',${i},'sold',this.value)"><option value=false ${!u.sold?"selected":""}>보유중</option><option value=true ${u.sold?"selected":""}>판매완료</option></select></div><div class=field><label>구매가</label><input value="${u.buy||""}" onchange="upd('${x.set.number}',${i},'buy',this.value)"></div><div class=field><label>현재 평가가</label><input value="${u.value||""}" ${x.market.mode!="manual"?"disabled":""} onchange="upd('${x.set.number}',${i},'value',this.value)"></div><div class=field><label>구매일</label><input type=date value="${u.buyDate||u.date||""}" onchange="upd('${x.set.number}',${i},'buyDate',this.value)"></div><div class=field><label>판매가</label><input value="${u.sell||""}" onchange="upd('${x.set.number}',${i},'sell',this.value)"></div><div class=field><label>판매일</label><input type=date value="${u.sellDate||""}" onchange="upd('${x.set.number}',${i},'sellDate',this.value)"></div><div class=field><label>메모</label><input value="${u.memo||""}" onchange="upd('${x.set.number}',${i},'memo',this.value)"></div></div><button style="background:#444" onclick="del('${x.set.number}',${i})">삭제</button></div>`).join("")}</div>`).join("")||"<div class=empty>등록된 세트 없음</div>";
 priceList.innerHTML=all.map(x=>{let m=x.market;return `<div class=card><b>${x.set.number} ${x.set.nameKo||x.set.name}</b>
-<div class=choice style="margin-top:9px"><button onclick="fetchKrPrice('${x.set.number}')">🇰🇷 정가 자동확인</button><button onclick="sourceSearch('lego','${x.set.number}')">LEGO Korea 검색 ↗</button><button onclick="sourceSearch('danawa','${x.set.number}')">다나와 검색 ↗</button><button onclick="sourceSearch('kream','${x.set.number}')">KREAM 검색 ↗</button></div>
+<div class=choice style="margin-top:9px"><button onclick="fetchKrPrice('${x.set.number}')">🇰🇷 카탈로그 적용</button><button onclick="sourceSearch('lego','${x.set.number}')">LEGO Korea 검색 ↗</button><button onclick="sourceSearch('danawa','${x.set.number}')">다나와 검색 ↗</button><button onclick="sourceSearch('kream','${x.set.number}')">KREAM 검색 ↗</button></div>
 ${x.set.foreign?`<div class=source>🌎 Brickset 해외 정가 ${x.set.foreign.price} ${x.set.foreign.currency}</div>`:""}
 <div class=source>현재 평가기준: ${m.mode=="kream"?"KREAM · "+(m.kreamDate||"조회일 미입력"):m.mode=="shop"?"국내 신품 최저가 · "+(m.shopDate||"조회일 미입력"):"직접입력"}</div>
-<div class=field><label>평가가 기준</label><div class=choice><button class="${m.mode=="manual"?"on":""}" onclick="setMode('${x.set.number}','manual')">직접입력</button><button class="${m.mode=="kream"?"on":""}" onclick="setMode('${x.set.number}','kream')">KREAM</button><button class="${m.mode=="shop"?"on":""}" onclick="setMode('${x.set.number}','shop')">국내 신품 최저가</button></div></div><div class=grid><div class=field><label>LEGO Korea 정가</label><input value="${m.krMsrp||""}" onchange="mkt('${x.set.number}','krMsrp',this.value)"></div><div class=field><label>LEGO Korea 확인일</label><input type=date value="${m.krMsrpDate||""}" onchange="mkt('${x.set.number}','krMsrpDate',this.value)"></div><div class=field><label>KREAM 참고가</label><input value="${m.kream||""}" onchange="mkt('${x.set.number}','kream',this.value)"></div><div class=field><label>KREAM 조회일</label><input type=date value="${m.kreamDate||""}" onchange="mkt('${x.set.number}','kreamDate',this.value)"></div><div class=field><label>국내 신품 최저가</label><input value="${m.shop||""}" onchange="mkt('${x.set.number}','shop',this.value)"></div><div class=field><label>쇼핑가 조회일</label><input type=date value="${m.shopDate||""}" onchange="mkt('${x.set.number}','shopDate',this.value)"></div><div class=field><label>출처/메모</label><input value="${m.sourceNote||""}" onchange="mkt('${x.set.number}','sourceNote',this.value)"></div></div></div>`}).join("")||"<div class=empty>등록된 세트 없음</div>";
+<div class=field><label>평가가 기준</label><div class=choice><button class="${m.mode=="manual"?"on":""}" onclick="setMode('${x.set.number}','manual')">직접입력</button><button class="${m.mode=="kream"?"on":""}" onclick="setMode('${x.set.number}','kream')">KREAM</button><button class="${m.mode=="shop"?"on":""}" onclick="setMode('${x.set.number}','shop')">국내 신품 최저가</button></div></div><div class=grid><div class=field><label>LEGO Korea 한글 제품명</label><input value="${x.set.nameKo||""}" placeholder="${x.set.name||""}" onchange="setKoName('${x.set.number}',this.value)"></div><div class=field><label>LEGO Korea 정가</label><input value="${m.krMsrp||""}" onchange="mkt('${x.set.number}','krMsrp',this.value)"></div><div class=field><label>LEGO Korea 확인일</label><input type=date value="${m.krMsrpDate||""}" onchange="mkt('${x.set.number}','krMsrpDate',this.value)"></div><div class=field><label>KREAM 참고가</label><input value="${m.kream||""}" onchange="mkt('${x.set.number}','kream',this.value)"></div><div class=field><label>KREAM 조회일</label><input type=date value="${m.kreamDate||""}" onchange="mkt('${x.set.number}','kreamDate',this.value)"></div><div class=field><label>국내 신품 최저가</label><input value="${m.shop||""}" onchange="mkt('${x.set.number}','shop',this.value)"></div><div class=field><label>쇼핑가 조회일</label><input type=date value="${m.shopDate||""}" onchange="mkt('${x.set.number}','shopDate',this.value)"></div><div class=field><label>출처/메모</label><input value="${m.sourceNote||""}" onchange="mkt('${x.set.number}','sourceNote',this.value)"></div></div></div>`}).join("")||"<div class=empty>등록된 세트 없음</div>";
 let u=all.flatMap(x=>x.u),h=u.filter(x=>!x.sold),s=u.filter(x=>x.sold),b=h.reduce((a,x)=>a+x.buy,0),v=h.reduce((a,x)=>a+x.value,0),rp=s.reduce((a,x)=>a+x.sell-x.buy,0);
 let lp=all.reduce((sum,x)=>sum+(+x.market.krMsrp||0)*x.u.filter(u=>!u.sold).length,0), saving=lp-b;
 cnt.textContent=h.length+"개";listVal.textContent=won(lp);buy.textContent=won(b);val.textContent=won(v);pl.textContent=(v-b>=0?"+":"")+won(v-b);pl.className=v-b>=0?"positive":"negative";soldCnt.textContent=s.length+"개";realPL.textContent=(rp>=0?"+":"")+won(rp);realPL.className=rp>=0?"positive":"negative";
