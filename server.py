@@ -9,4 +9,5 @@ def health(): return jsonify(ok=True,key_configured=bool(KEY))
 def search():
     if not KEY:return jsonify(error="BRICKSET_API_KEY 미설정"),500
     p={"apiKey":KEY,"userHash":"","params":json.dumps({"query":request.args.get("q",""),"pageSize":20,"extendedData":1})}
-    r=requests.get("https://brickset.com/api/v3.asmx/getSets",params=p,timeout=20);r.raise_for_status();return jsonify(r.json())
+    r=requests.get("https://brickset.com/api/v3.asmx/getSets",params=p,timeout=20); r.raise_for_status()
+    return jsonify(r.json())
