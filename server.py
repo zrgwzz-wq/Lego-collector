@@ -35,11 +35,19 @@ def kr_price():
         text=rr.text
         # Only accept a KRW price when the set number is present close to the price in LEGO's own response.
         candidates=[]
-        for m in re.finditer(r'([0-9]{1,3}(?:,[0-9]{3})+)\s*원',text):
-            lo=max(0,m.start()-5000); hi=min(len(text),m.end()+5000)
-            if number in text[lo:hi]:
-                candidates.append(int(m.group(1).replace(",","")))
-        price=min(candidates) if candidates else None
+        patterns=[r'([0-9]{1,3}(?:,[0-9]{3})+)\\s*원',
+                  r'₩\\s*([0-9]{1,3}(?:,[0-9]{3})+)',
+                  r'"price"\\s*:\\s*"?([0-9]{4,9}(?:\\.[0-9]+)?)"?']
+        positions=[m.start() for m in re.finditer(re.escape(number),text)]
+        for pat in patterns:
+            for m in re.finditer(pat,text):
+                raw=m.group(1)
+                try: val=int(float(raw.replace(",","")))
+                except: continue
+                if val < 1000 or val > 10000000: continue
+                if any(abs(m.start()-p)<12000 for p in positions):
+                    candidates.append((min(abs(m.start()-p) for p in positions),val))
+        price=sorted(candidates)[0][1] if candidates else None
         d={"found":bool(price),"number":number,"price":price,"currency":"KRW",
            "source":"LEGO Korea","source_url":url if price else None,
            "checked_at":time.strftime("%Y-%m-%d")}
