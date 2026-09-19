@@ -3,7 +3,7 @@ from flask import Flask,request,jsonify,send_from_directory
 app=Flask(__name__,static_folder="public")
 KEY=os.environ.get("BRICKSET_API_KEY","")
 @app.get("/")
-def home(): return send_from_directory("public","index.html")
+def home(): return send_from_directory(".","index.html")
 @app.get("/api/health")
 def health(): return jsonify(ok=True,key_configured=bool(KEY))
 @app.get("/api/search")
