@@ -1,4 +1,4 @@
-import os,json,time,requests,re
+import os, time,json,time,requests,re
 from flask import Flask,request,jsonify,send_from_directory
 app=Flask(__name__); KEY=os.environ.get("BRICKSET_API_KEY","")
 CACHE={}; TTL=21600
@@ -80,3 +80,81 @@ def auto_sync():
         except Exception:
             continue
     return jsonify(ok=True,items=out,catalog_count=len(cat))
+
+LIVE_KR_CACHE={}
+LIVE_KR_TTL=21600
+
+def _clean_text(v):
+    if not v: return ""
+    v=re.sub(r"<[^>]+>"," ",str(v))
+    v=v.replace("\\u0026","&").replace("\\u003c","<").replace("\\u003e",">")
+    try: v=bytes(v,"utf-8").decode("unicode_escape") if "\\u" in v else v
+    except: pass
+    return re.sub(r"\s+"," ",v).strip()
+
+def _krw_from_text(t):
+    pats=[
+      r'"price"\s*:\s*"?([0-9]{4,7})"?',
+      r'"priceCentAmount"\s*:\s*([0-9]{4,9})',
+      r'([0-9]{1,3}(?:,[0-9]{3})+)\s*원'
+    ]
+    for p in pats:
+        for m in re.finditer(p,t,re.I):
+            raw=m.group(1).replace(",","")
+            try:
+                x=int(raw)
+                if "priceCentAmount" in p and x>1000000: x//=100
+                if 5000 <= x <= 3000000: return x
+            except: pass
+    return None
+
+def _official_kr_lookup(number):
+    now=time.time()
+    c=LIVE_KR_CACHE.get(number)
+    if c and now-c["ts"]<LIVE_KR_TTL: return c["data"]
+    headers={"User-Agent":"Mozilla/5.0 (compatible; LEGOCollector/1.0)","Accept-Language":"ko-KR,ko;q=0.9,en;q=0.5"}
+    urls=[
+      "https://www.lego.com/ko-kr/search?q="+number,
+      "https://www.lego.com/ko-kr/service/building-instructions/"+number
+    ]
+    result=None
+    for url in urls:
+        try:
+            t=requests.get(url,headers=headers,timeout=12).text
+            if number not in t: continue
+            name=None
+            for p in [
+              r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)',
+              r'"productName"\s*:\s*"([^"]+)"',
+              r'"name"\s*:\s*"([^"]+)"'
+            ]:
+                mm=re.search(p,t,re.I)
+                if mm:
+                    cand=_clean_text(mm.group(1))
+                    if cand and len(cand)>2 and "LEGO" not in cand.upper():
+                        name=cand; break
+            price=_krw_from_text(t)
+            if name or price:
+                result={"name_ko":name,"price":price,"currency":"KRW","source":"LEGO Korea live",
+                        "checked_at":time.strftime("%Y-%m-%d"),"source_url":url}
+                break
+        except: pass
+    LIVE_KR_CACHE[number]={"ts":now,"data":result}
+    return result
+
+@app.post("/api/kr-live-sync")
+def kr_live_sync():
+    body=request.get_json(silent=True) or {}
+    nums=[]
+    for x in body.get("numbers",[]):
+        n=re.sub(r"[^0-9]","",str(x))
+        if n and n not in nums: nums.append(n)
+    cat=load_kr_catalog()
+    out={}
+    for n in nums[:50]:
+        # Verified catalog always wins; live official lookup fills missing sets.
+        k=cat.get(n)
+        if not k: k=_official_kr_lookup(n)
+        out[n]=k
+    return jsonify(ok=True,items=out,verified_catalog_count=len(cat),
+                   live_cache_count=len(LIVE_KR_CACHE))
