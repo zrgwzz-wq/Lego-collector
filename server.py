@@ -5,7 +5,7 @@ CACHE={}; TTL=21600
 @app.get("/")
 def home(): return send_from_directory(".","index.html")
 @app.get("/api/health")
-def health(): return jsonify(ok=True,key_configured=bool(KEY),cache_items=len(CACHE))
+def health(): return jsonify(ok=True,key_configured=bool(KEY),cache_items=len(CACHE),kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0)
 @app.get("/api/search")
 def search():
     if not KEY:return jsonify(error="BRICKSET_API_KEY 미설정"),500
@@ -40,3 +40,10 @@ def kr_meta():
 def kr_catalog():
     data=load_kr_catalog()
     return jsonify(ok=True,count=len(data),sets=data)
+
+@app.post("/api/kr-catalog/check")
+def kr_catalog_check():
+    body=request.get_json(silent=True) or {}
+    nums=[re.sub(r"[^0-9]","",str(x)) for x in body.get("numbers",[])]
+    cat=load_kr_catalog()
+    return jsonify(items={n:cat.get(n) for n in nums if n})
