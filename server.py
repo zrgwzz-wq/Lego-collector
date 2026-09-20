@@ -13,7 +13,7 @@ def health():
         cache_items=len(CACHE),
         kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0,
         supabase_configured=bool(os.environ.get("SUPABASE_URL","") and os.environ.get("SUPABASE_SERVICE_KEY","")),
-        version="v23.2"
+        version="v24"
     )
 @app.get("/api/search")
 def search():
@@ -118,38 +118,73 @@ def _krw_from_text(t):
     return None
 
 def _official_kr_lookup(number):
-    now=time.time()
-    c=LIVE_KR_CACHE.get(number)
-    if c and now-c["ts"]<LIVE_KR_TTL: return c["data"]
-    headers={"User-Agent":"Mozilla/5.0 (compatible; LEGOCollector/1.0)","Accept-Language":"ko-KR,ko;q=0.9,en;q=0.5"}
+    """LEGO Korea 공식 제품 페이지에서 한글명과 원화 정가를 찾는다.
+    현재 판매/품절/단종 페이지 모두 대상으로 하며, 찾은 값만 반환한다.
+    """
+    n=str(number)
+    headers={
+      "User-Agent":"Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/143 Safari/537.36",
+      "Accept-Language":"ko-KR,ko;q=0.9,en;q=0.7"
+    }
+
+    # LEGO 제품 URL은 slug를 몰라도 /product/x-SETNO 형태가 제품으로 연결되는 경우가 많다.
+    # 실패하면 한국 사이트 검색 페이지도 확인한다.
     urls=[
-      "https://www.lego.com/ko-kr/search?q="+number,
-      "https://www.lego.com/ko-kr/service/building-instructions/"+number
+      f"https://www.lego.com/ko-kr/product/x-{n}",
+      f"https://www.lego.com/ko-kr/search?q={n}",
     ]
-    result=None
     for url in urls:
         try:
-            t=requests.get(url,headers=headers,timeout=12).text
-            if number not in t: continue
+            r=requests.get(url,headers=headers,timeout=15,allow_redirects=True)
+            if not r.ok: continue
+            t=r.text
+            final_url=r.url
+
+            # 다른 세트 검색 결과가 섞이는 것을 방지.
+            if n not in t and n not in final_url:
+                continue
+
             name=None
-            for p in [
-              r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)',
-              r'"productName"\s*:\s*"([^"]+)"',
-              r'"name"\s*:\s*"([^"]+)"'
+            for pat in [
+                r'<h1[^>]*>(.*?)</h1>',
+                r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)',
+                r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:title["\']',
+                r'"productName"\s*:\s*"([^"]+)"',
+                r'"name"\s*:\s*"([^"]+)"'
             ]:
-                mm=re.search(p,t,re.I)
+                for x in re.findall(pat,t,re.I|re.S):
+                    candidate=_clean_lego_title(x,n)
+                    if candidate:
+                        name=candidate
+                        break
+                if name: break
+
+            # KRW 가격: JSON/구조화 데이터 우선, 화면 텍스트는 보조.
+            price=None
+            price_patterns=[
+                r'"price"\s*:\s*"?([0-9]{4,7})"?\s*,\s*"priceCurrency"\s*:\s*"KRW"',
+                r'"priceCurrency"\s*:\s*"KRW"\s*,\s*"price"\s*:\s*"?([0-9]{4,7})"?',
+                r'"formattedValue"\s*:\s*"₩?\s*([0-9,]{4,10})"',
+                r'([0-9]{1,3}(?:,[0-9]{3})+)\s*원'
+            ]
+            for pat in price_patterns:
+                mm=re.search(pat,t,re.I)
                 if mm:
-                    cand=_clean_text(mm.group(1))
-                    if cand and len(cand)>2 and "LEGO" not in cand.upper():
-                        name=cand; break
-            price=_krw_from_text(t)
+                    try:
+                        v=int(mm.group(1).replace(",",""))
+                        if 1000 <= v <= 10000000:
+                            price=v
+                            break
+                    except Exception:
+                        pass
+
             if name or price:
-                result={"name_ko":name,"price":price,"currency":"KRW","source":"LEGO Korea live",
-                        "checked_at":time.strftime("%Y-%m-%d"),"source_url":url}
-                break
-        except: pass
-    LIVE_KR_CACHE[number]={"ts":now,"data":result}
-    return result
+                return {"name_ko":name,"price":price,"currency":"KRW",
+                        "source":"LEGO Korea","source_url":final_url,
+                        "checked_at":time.strftime("%Y-%m-%d")}
+        except Exception:
+            continue
+    return None
 
 @app.post("/api/kr-live-sync")
 def kr_live_sync():
@@ -493,25 +528,59 @@ def _instruction_name(number):
 def kr_lookup_debug(number):
     n=re.sub(r"[^0-9]","",str(number))
     if not n: return jsonify(ok=False,error="invalid set number"),400
-    verified=load_kr_catalog().get(n)
-    stored=sb_get([n]).get(n) if sb_enabled() else None
-    name,url=_instruction_name(n)
+
+    verified=load_kr_catalog().get(n) or {}
+    stored=(sb_get([n]).get(n) if sb_enabled() else None) or {}
+    instruction_name,instruction_url=_instruction_name(n)
     live=_official_kr_lookup(n) or {}
-    item=verified
-    if not item and stored:
-        item={"name_ko":stored.get("name_ko"),"price":stored.get("price_krw"),
-              "source":stored.get("source"),"source_url":stored.get("source_url"),
-              "checked_at":stored.get("checked_at")}
-    if not item and (name or live.get("price")):
-        item={"name_ko":name or live.get("name_ko"),"price":live.get("price"),
-              "currency":"KRW","source":"LEGO Korea","checked_at":time.strftime("%Y-%m-%d"),
-              "source_url":url or live.get("source_url")}
-    if item and sb_enabled():
-        sb_upsert([{"set_number":n,"name_ko":item.get("name_ko"),"price_krw":item.get("price"),
-                    "source":item.get("source"),"source_url":item.get("source_url"),
-                    "checked_at":item.get("checked_at")}])
-    return jsonify(ok=bool(item),number=n,item=item,official_name_found=bool(name),
-                   official_url=url,persistent=sb_enabled())
+
+    name=(live.get("name_ko") or instruction_name or verified.get("name_ko")
+          or stored.get("name_ko"))
+    price=(live.get("price") if live.get("price") is not None else
+           verified.get("price") if verified.get("price") is not None else
+           stored.get("price_krw"))
+    source_url=live.get("source_url") or instruction_url or verified.get("source_url") or stored.get("source_url")
+    source="LEGO Korea" if (live or instruction_name) else (verified.get("source") or stored.get("source"))
+    item=None
+    if name or price is not None:
+        item={"name_ko":name,"price":price,"currency":"KRW","source":source,
+              "source_url":source_url,"checked_at":time.strftime("%Y-%m-%d")}
+        if sb_enabled():
+            sb_upsert([{"set_number":n,"name_ko":name,"price_krw":price,
+                        "source":source,"source_url":source_url,
+                        "checked_at":item["checked_at"]}])
+    return jsonify(ok=bool(item),number=n,item=item,
+                   official_name_found=bool(instruction_name or live.get("name_ko")),
+                   official_price_found=live.get("price") is not None,
+                   official_url=source_url,persistent=sb_enabled())
+
+
+@app.post("/api/kr-collect")
+def kr_collect():
+    data=request.get_json(silent=True) or {}
+    nums=data.get("numbers") or []
+    nums=[re.sub(r"[^0-9]","",str(x)) for x in nums][:20]
+    nums=[x for x in nums if x]
+    results={}
+    for n in nums:
+        verified=load_kr_catalog().get(n) or {}
+        stored=(sb_get([n]).get(n) if sb_enabled() else None) or {}
+        instruction_name,instruction_url=_instruction_name(n)
+        live=_official_kr_lookup(n) or {}
+        name=live.get("name_ko") or instruction_name or verified.get("name_ko") or stored.get("name_ko")
+        price=(live.get("price") if live.get("price") is not None else
+               verified.get("price") if verified.get("price") is not None else stored.get("price_krw"))
+        if name or price is not None:
+            item={"name_ko":name,"price":price,"currency":"KRW",
+                  "source":"LEGO Korea" if (live or instruction_name) else (verified.get("source") or stored.get("source")),
+                  "source_url":live.get("source_url") or instruction_url or verified.get("source_url") or stored.get("source_url"),
+                  "checked_at":time.strftime("%Y-%m-%d")}
+            results[n]=item
+            if sb_enabled():
+                sb_upsert([{"set_number":n,"name_ko":name,"price_krw":price,
+                            "source":item["source"],"source_url":item["source_url"],
+                            "checked_at":item["checked_at"]}])
+    return jsonify(ok=True,items=results,count=len(results))
 
 @app.post("/api/persistent-catalog-sync")
 def persistent_catalog_sync():
