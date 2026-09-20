@@ -13,7 +13,7 @@ def health():
         cache_items=len(CACHE),
         kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0,
         supabase_configured=bool(os.environ.get("SUPABASE_URL","") and os.environ.get("SUPABASE_SERVICE_KEY","")),
-        version="v22"
+        version="v23"
     )
 @app.get("/api/search")
 def search():
@@ -318,6 +318,260 @@ def supabase_diagnostic():
     result["ok"]=bool(result.get("read",{}).get("ok") and result.get("write",{}).get("ok"))
     return jsonify(result),200
 
+def _clean_lego_title(s, number):
+    if not s: return None
+    s=re.sub(r"<[^>]+>"," ",str(s))
+    s=s.replace("&amp;","&").replace("&quot;",'"').replace("&#39;","'")
+    s=re.sub(r"\\s+"," ",s).strip(" -|")
+    s=re.sub(r"\\s*\\|\\s*LEGO.*$","",s,flags=re.I)
+    s=re.sub(r"\\s*-\\s*조립 설명서.*$","",s)
+    s=re.sub(r"^\\s*조립 설명서\\s*[-–:]\\s*","",s)
+    s=re.sub(rf"^\\s*{re.escape(str(number))}\\s*","",s)
+    s=s.strip()
+    if not re.search(r"[가-힣]",s): return None
+    return s if 1 < len(s) < 120 else None
+
+def _instruction_name(number):
+    """LEGO Korea 공식 조립설명서/검색 페이지에서 한국어 제품명을 찾는다."""
+    urls=[
+      f"https://www.lego.com/ko-kr/service/building-instructions/{number}",
+      f"https://www.lego.com/ko-kr/service/building-instructions/search-results?page=1&searchString={number}",
+      f"https://www.lego.com/ko-kr/service/buildinginstructions/{number}",
+    ]
+    headers={"User-Agent":"Mozilla/5.0 AppleWebKit/537.36 Chrome/143 Safari/537.36",
+             "Accept-Language":"ko-KR,ko;q=0.9,en;q=0.7"}
+    for url in urls:
+        try:
+            r=requests.get(url,headers=headers,timeout=15,allow_redirects=True)
+            if not r.ok: continue
+            t=r.text
+            # h1
+            for x in re.findall(r"<h1[^>]*>(.*?)</h1>",t,re.I|re.S):
+                name=_clean_lego_title(x,number)
+                if name: return name,url
+            # metadata/title
+            pats=[
+              r'<meta[^>]+property=["\\\']og:title["\\\'][^>]+content=["\\\']([^"\\\']+)',
+              r'<meta[^>]+content=["\\\']([^"\\\']+)["\\\'][^>]+property=["\\\']og:title["\\\']',
+              r"<title[^>]*>(.*?)</title>"
+            ]
+            for pat in pats:
+                for x in re.findall(pat,t,re.I|re.S):
+                    name=_clean_lego_title(x,number)
+                    if name: return name,url
+            # visible search result, e.g. "10305 사자 기사의 성"
+            for x in re.findall(rf'{re.escape(str(number))}\\s+([^"<>{{}}]{{2,100}})',t):
+                name=_clean_lego_title(x,number)
+                if name: return name,url
+            # JSON fields
+            for x in re.findall(r'"(?:name|title|productName)"\\s*:\\s*"([^"]*[가-힣][^"]*)"',t,re.I):
+                name=_clean_lego_title(x,number)
+                if name: return name,url
+        except Exception:
+            continue
+    return None,None
+
+def _official_kr_lookup(number):
+    now=time.time()
+    c=LIVE_KR_CACHE.get(number)
+    if c and now-c["ts"]<LIVE_KR_TTL: return c["data"]
+    headers={"User-Agent":"Mozilla/5.0 (compatible; LEGOCollector/1.0)","Accept-Language":"ko-KR,ko;q=0.9,en;q=0.5"}
+    urls=[
+      "https://www.lego.com/ko-kr/search?q="+number,
+      "https://www.lego.com/ko-kr/service/building-instructions/"+number
+    ]
+    result=None
+    for url in urls:
+        try:
+            t=requests.get(url,headers=headers,timeout=12).text
+            if number not in t: continue
+            name=None
+            for p in [
+              r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)',
+              r'"productName"\s*:\s*"([^"]+)"',
+              r'"name"\s*:\s*"([^"]+)"'
+            ]:
+                mm=re.search(p,t,re.I)
+                if mm:
+                    cand=_clean_text(mm.group(1))
+                    if cand and len(cand)>2 and "LEGO" not in cand.upper():
+                        name=cand; break
+            price=_krw_from_text(t)
+            if name or price:
+                result={"name_ko":name,"price":price,"currency":"KRW","source":"LEGO Korea live",
+                        "checked_at":time.strftime("%Y-%m-%d"),"source_url":url}
+                break
+        except: pass
+    LIVE_KR_CACHE[number]={"ts":now,"data":result}
+    return result
+
+@app.post("/api/kr-live-sync")
+def kr_live_sync():
+    body=request.get_json(silent=True) or {}
+    nums=[]
+    for x in body.get("numbers",[]):
+        n=re.sub(r"[^0-9]","",str(x))
+        if n and n not in nums: nums.append(n)
+    cat=load_kr_catalog()
+    out={}
+    for n in nums[:50]:
+        # Verified catalog always wins; live official lookup fills missing sets.
+        k=cat.get(n)
+        if not k: k=_official_kr_lookup(n)
+        out[n]=k
+    return jsonify(ok=True,items=out,verified_catalog_count=len(cat),
+                   live_cache_count=len(LIVE_KR_CACHE))
+
+DISCOVERED_KR={}
+DISCOVERY_TS=0
+DISCOVERY_TTL=43200
+
+def _extract_products_from_lego_html(t):
+    out={}
+    # Product URLs normally end with a numeric LEGO set number.
+    links=list(re.finditer(r'href=["\']([^"\']*/product/[^"\']*?-(\d{4,6})(?:["\']|\?))',t,re.I))
+    for m in links:
+        n=m.group(2)
+        a=max(0,m.start()-1400); b=min(len(t),m.end()+2200)
+        chunk=t[a:b]
+        # Prefer nearby heading/title text.
+        names=[]
+        for p in [r'<h[23][^>]*>(.*?)</h[23]>',r'"name"\s*:\s*"([^"]+)"']:
+            names += re.findall(p,chunk,re.I|re.S)
+        name=None
+        for x in names:
+            x=_clean_text(x)
+            if x and len(x)>2 and not x.isdigit() and "전체 상품" not in x:
+                name=x; break
+        price=_krw_from_text(chunk)
+        if name or price:
+            out[n]={"name_ko":name,"price":price,"currency":"KRW",
+                    "source":"LEGO Korea auto","checked_at":time.strftime("%Y-%m-%d"),
+                    "source_url":"https://www.lego.com"+m.group(1) if m.group(1).startswith("/") else m.group(1)}
+    return out
+
+def refresh_discovered_kr(force=False):
+    global DISCOVERY_TS, DISCOVERED_KR
+    now=time.time()
+    if not force and DISCOVERED_KR and now-DISCOVERY_TS<DISCOVERY_TTL:
+        return DISCOVERED_KR
+    headers={"User-Agent":"Mozilla/5.0 (compatible; LEGOCollector/1.0)",
+             "Accept-Language":"ko-KR,ko;q=0.9,en;q=0.5"}
+    found={}
+    # New products first: recent additions are the most important to discover automatically.
+    urls=["https://www.lego.com/ko-kr/categories/new-sets-and-products"]
+    # A few leading all-set pages catch current catalogue changes without a long 40+ page request.
+    urls += ["https://www.lego.com/ko-kr/categories/all-sets?page="+str(i) for i in range(1,7)]
+    for url in urls:
+        try:
+            r=requests.get(url,headers=headers,timeout=10)
+            if r.ok: found.update(_extract_products_from_lego_html(r.text))
+        except: pass
+    if found:
+        DISCOVERED_KR.update(found)
+        DISCOVERY_TS=now
+    return DISCOVERED_KR
+
+@app.post("/api/catalog-auto-refresh")
+def catalog_auto_refresh():
+    body=request.get_json(silent=True) or {}
+    nums=[]
+    for x in body.get("numbers",[]):
+        n=re.sub(r"[^0-9]","",str(x))
+        if n and n not in nums: nums.append(n)
+    verified=load_kr_catalog()
+    discovered=refresh_discovered_kr(False)
+    items={}
+    for n in nums[:100]:
+        k=verified.get(n) or discovered.get(n)
+        if not k: k=_official_kr_lookup(n)
+        items[n]=k
+    return jsonify(ok=True,items=items,verified_count=len(verified),
+                   discovered_count=len(discovered),
+                   total_available=len(set(verified)|set(discovered)),
+                   refreshed_at=time.strftime("%Y-%m-%d %H:%M:%S"))
+
+SUPABASE_URL=os.environ.get("SUPABASE_URL","").rstrip("/")
+SUPABASE_SERVICE_KEY=os.environ.get("SUPABASE_SERVICE_KEY","")
+SUPABASE_TABLE=os.environ.get("SUPABASE_TABLE","lego_kr_catalog")
+
+def _sb_headers(prefer=None):
+    h={"apikey":SUPABASE_SERVICE_KEY,"Content-Type":"application/json"}
+    # Legacy service_role keys are JWTs and support Authorization: Bearer.
+    # New sb_secret_ keys are sent as the apikey header and must never be exposed to the browser.
+    if SUPABASE_SERVICE_KEY and not SUPABASE_SERVICE_KEY.startswith("sb_secret_"):
+        h["Authorization"]="Bearer "+SUPABASE_SERVICE_KEY
+    if prefer: h["Prefer"]=prefer
+    return h
+
+def sb_enabled():
+    return bool(SUPABASE_URL and SUPABASE_SERVICE_KEY)
+
+def sb_get(numbers, diagnostic=False):
+    info={"attempted":False,"ok":False,"status":None,"error":None,"rows":0}
+    if not sb_enabled() or not numbers:
+        info["error"]="Supabase environment variables missing" if not sb_enabled() else "No set numbers"
+        return ({},info) if diagnostic else {}
+    try:
+        vals=",".join(numbers)
+        info["attempted"]=True
+        r=requests.get(f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}",
+          headers=_sb_headers(),params={"select":"*","set_number":f"in.({vals})"},timeout=12)
+        info["status"]=r.status_code
+        info["ok"]=r.ok
+        if not r.ok:
+            info["error"]=(r.text or "")[:500]
+            return ({},info) if diagnostic else {}
+        rows=r.json()
+        info["rows"]=len(rows)
+        data={str(x["set_number"]):x for x in rows}
+        return (data,info) if diagnostic else data
+    except Exception as e:
+        info["error"]=str(e)[:500]
+        return ({},info) if diagnostic else {}
+
+def sb_upsert(rows, diagnostic=False):
+    info={"attempted":False,"ok":False,"status":None,"error":None,"rows":len(rows or [])}
+    if not sb_enabled() or not rows:
+        info["error"]="Supabase environment variables missing" if not sb_enabled() else "No rows to save"
+        return info if diagnostic else False
+    try:
+        info["attempted"]=True
+        r=requests.post(f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}",
+          headers=_sb_headers("resolution=merge-duplicates,return=minimal"),
+          params={"on_conflict":"set_number"},json=rows,timeout=15)
+        info["status"]=r.status_code
+        info["ok"]=r.ok
+        if not r.ok: info["error"]=(r.text or "")[:500]
+        return info if diagnostic else r.ok
+    except Exception as e:
+        info["error"]=str(e)[:500]
+        return info if diagnostic else False
+
+@app.get("/api/supabase-diagnostic")
+def supabase_diagnostic():
+    result={
+        "ok":False,
+        "configured":sb_enabled(),
+        "url_configured":bool(SUPABASE_URL),
+        "key_configured":bool(SUPABASE_SERVICE_KEY),
+        "key_type":"new_secret" if SUPABASE_SERVICE_KEY.startswith("sb_secret_") else ("legacy_or_other" if SUPABASE_SERVICE_KEY else "missing"),
+        "table":SUPABASE_TABLE
+    }
+    if not sb_enabled():
+        result["error"]="SUPABASE_URL or SUPABASE_SERVICE_KEY missing"
+        return jsonify(result),200
+    _,read_info=sb_get(["10300"],diagnostic=True)
+    result["read"]=read_info
+    # Seed the verified 10300 row as a safe write test; no secret is returned.
+    seed=load_kr_catalog().get("10300")
+    if seed:
+        row={"set_number":"10300","name_ko":seed.get("name_ko"),"price_krw":seed.get("price"),
+             "source":seed.get("source"),"source_url":seed.get("source_url"),"checked_at":seed.get("checked_at")}
+        result["write"]=sb_upsert([row],diagnostic=True)
+    result["ok"]=bool(result.get("read",{}).get("ok") and result.get("write",{}).get("ok"))
+    return jsonify(result),200
+
 def _instruction_name(number):
     # LEGO Korea building-instructions pages are a stronger source for official Korean names,
     # including retired sets.
@@ -342,6 +596,30 @@ def _instruction_name(number):
                         return name,url
         except: pass
     return None,None
+
+@app.get("/api/kr-lookup/<number>")
+def kr_lookup_debug(number):
+    n=re.sub(r"[^0-9]","",str(number))
+    if not n: return jsonify(ok=False,error="invalid set number"),400
+    verified=load_kr_catalog().get(n)
+    stored=sb_get([n]).get(n) if sb_enabled() else None
+    name,url=_instruction_name(n)
+    live=_official_kr_lookup(n) or {}
+    item=verified
+    if not item and stored:
+        item={"name_ko":stored.get("name_ko"),"price":stored.get("price_krw"),
+              "source":stored.get("source"),"source_url":stored.get("source_url"),
+              "checked_at":stored.get("checked_at")}
+    if not item and (name or live.get("price")):
+        item={"name_ko":name or live.get("name_ko"),"price":live.get("price"),
+              "currency":"KRW","source":"LEGO Korea","checked_at":time.strftime("%Y-%m-%d"),
+              "source_url":url or live.get("source_url")}
+    if item and sb_enabled():
+        sb_upsert([{"set_number":n,"name_ko":item.get("name_ko"),"price_krw":item.get("price"),
+                    "source":item.get("source"),"source_url":item.get("source_url"),
+                    "checked_at":item.get("checked_at")}])
+    return jsonify(ok=bool(item),number=n,item=item,official_name_found=bool(name),
+                   official_url=url,persistent=sb_enabled())
 
 @app.post("/api/persistent-catalog-sync")
 def persistent_catalog_sync():
