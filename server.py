@@ -1,11 +1,20 @@
 import os, time,json,time,requests,re
 from flask import Flask,request,jsonify,send_from_directory
 app=Flask(__name__); KEY=os.environ.get("BRICKSET_API_KEY","")
+API="https://brickset.com/api/v3.asmx"
 CACHE={}; TTL=21600
 @app.get("/")
 def home(): return send_from_directory(".","index.html")
 @app.get("/api/health")
-def health(): return jsonify(ok=True,key_configured=bool(KEY),cache_items=len(CACHE),kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0)
+def health():
+    return jsonify(
+        ok=True,
+        key_configured=bool(KEY),
+        cache_items=len(CACHE),
+        kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0,
+        supabase_configured=bool(os.environ.get("SUPABASE_URL","") and os.environ.get("SUPABASE_SERVICE_KEY","")),
+        version="v22"
+    )
 @app.get("/api/search")
 def search():
     if not KEY:return jsonify(error="BRICKSET_API_KEY 미설정"),500
@@ -13,12 +22,12 @@ def search():
     if ck in CACHE and time.time()-CACHE[ck]["t"]<TTL:
         out=dict(CACHE[ck]["d"]); out["cached"]=True; return jsonify(out)
     p={"apiKey":KEY,"userHash":"","params":json.dumps({"query":q,"pageSize":20,"extendedData":1})}
-    r=requests.get("https://brickset.com/api/v3.asmx/getSets",params=p,timeout=20);r.raise_for_status()
+    r=requests.get(API+"/getSets",params=p,timeout=20);r.raise_for_status()
     d=r.json(); CACHE[ck]={"t":time.time(),"d":d}; d["cached"]=False; return jsonify(d)
 @app.get("/api/usage")
 def usage():
     if not KEY:return jsonify(error="BRICKSET_API_KEY 미설정"),500
-    r=requests.get("https://brickset.com/api/v3.asmx/getKeyUsageStats",params={"apiKey":KEY},timeout=20);r.raise_for_status()
+    r=requests.get(API+"/getKeyUsageStats",params={"apiKey":KEY},timeout=20);r.raise_for_status()
     return jsonify(r.json())
 
 
@@ -233,32 +242,81 @@ SUPABASE_SERVICE_KEY=os.environ.get("SUPABASE_SERVICE_KEY","")
 SUPABASE_TABLE=os.environ.get("SUPABASE_TABLE","lego_kr_catalog")
 
 def _sb_headers(prefer=None):
-    h={"apikey":SUPABASE_SERVICE_KEY,"Authorization":"Bearer "+SUPABASE_SERVICE_KEY,
-       "Content-Type":"application/json"}
+    h={"apikey":SUPABASE_SERVICE_KEY,"Content-Type":"application/json"}
+    # Legacy service_role keys are JWTs and support Authorization: Bearer.
+    # New sb_secret_ keys are sent as the apikey header and must never be exposed to the browser.
+    if SUPABASE_SERVICE_KEY and not SUPABASE_SERVICE_KEY.startswith("sb_secret_"):
+        h["Authorization"]="Bearer "+SUPABASE_SERVICE_KEY
     if prefer: h["Prefer"]=prefer
     return h
 
 def sb_enabled():
     return bool(SUPABASE_URL and SUPABASE_SERVICE_KEY)
 
-def sb_get(numbers):
-    if not sb_enabled() or not numbers: return {}
+def sb_get(numbers, diagnostic=False):
+    info={"attempted":False,"ok":False,"status":None,"error":None,"rows":0}
+    if not sb_enabled() or not numbers:
+        info["error"]="Supabase environment variables missing" if not sb_enabled() else "No set numbers"
+        return ({},info) if diagnostic else {}
     try:
         vals=",".join(numbers)
+        info["attempted"]=True
         r=requests.get(f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}",
           headers=_sb_headers(),params={"select":"*","set_number":f"in.({vals})"},timeout=12)
-        if not r.ok: return {}
-        return {str(x["set_number"]):x for x in r.json()}
-    except: return {}
+        info["status"]=r.status_code
+        info["ok"]=r.ok
+        if not r.ok:
+            info["error"]=(r.text or "")[:500]
+            return ({},info) if diagnostic else {}
+        rows=r.json()
+        info["rows"]=len(rows)
+        data={str(x["set_number"]):x for x in rows}
+        return (data,info) if diagnostic else data
+    except Exception as e:
+        info["error"]=str(e)[:500]
+        return ({},info) if diagnostic else {}
 
-def sb_upsert(rows):
-    if not sb_enabled() or not rows: return False
+def sb_upsert(rows, diagnostic=False):
+    info={"attempted":False,"ok":False,"status":None,"error":None,"rows":len(rows or [])}
+    if not sb_enabled() or not rows:
+        info["error"]="Supabase environment variables missing" if not sb_enabled() else "No rows to save"
+        return info if diagnostic else False
     try:
+        info["attempted"]=True
         r=requests.post(f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}",
           headers=_sb_headers("resolution=merge-duplicates,return=minimal"),
           params={"on_conflict":"set_number"},json=rows,timeout=15)
-        return r.ok
-    except: return False
+        info["status"]=r.status_code
+        info["ok"]=r.ok
+        if not r.ok: info["error"]=(r.text or "")[:500]
+        return info if diagnostic else r.ok
+    except Exception as e:
+        info["error"]=str(e)[:500]
+        return info if diagnostic else False
+
+@app.get("/api/supabase-diagnostic")
+def supabase_diagnostic():
+    result={
+        "ok":False,
+        "configured":sb_enabled(),
+        "url_configured":bool(SUPABASE_URL),
+        "key_configured":bool(SUPABASE_SERVICE_KEY),
+        "key_type":"new_secret" if SUPABASE_SERVICE_KEY.startswith("sb_secret_") else ("legacy_or_other" if SUPABASE_SERVICE_KEY else "missing"),
+        "table":SUPABASE_TABLE
+    }
+    if not sb_enabled():
+        result["error"]="SUPABASE_URL or SUPABASE_SERVICE_KEY missing"
+        return jsonify(result),200
+    _,read_info=sb_get(["10300"],diagnostic=True)
+    result["read"]=read_info
+    # Seed the verified 10300 row as a safe write test; no secret is returned.
+    seed=load_kr_catalog().get("10300")
+    if seed:
+        row={"set_number":"10300","name_ko":seed.get("name_ko"),"price_krw":seed.get("price"),
+             "source":seed.get("source"),"source_url":seed.get("source_url"),"checked_at":seed.get("checked_at")}
+        result["write"]=sb_upsert([row],diagnostic=True)
+    result["ok"]=bool(result.get("read",{}).get("ok") and result.get("write",{}).get("ok"))
+    return jsonify(result),200
 
 def _instruction_name(number):
     # LEGO Korea building-instructions pages are a stronger source for official Korean names,
@@ -294,20 +352,26 @@ def persistent_catalog_sync():
         if n and n not in nums: nums.append(n)
     nums=nums[:100]
     verified=load_kr_catalog()
-    stored=sb_get(nums)
+    stored,read_diag=sb_get(nums,diagnostic=True)
     out={}
     to_save=[]
     for n in nums:
         # Priority: verified repo catalog -> persistent DB -> official live sources.
         k=verified.get(n)
-        if not k and n in stored:
+        if k:
+            # v22 fix: verified catalog rows are also persisted to Supabase.
+            to_save.append({"set_number":n,"name_ko":k.get("name_ko"),
+                "price_krw":k.get("price"),"source":k.get("source"),
+                "source_url":k.get("source_url"),"checked_at":k.get("checked_at")})
+        elif n in stored:
             x=stored[n]
             k={"name_ko":x.get("name_ko"),"price":x.get("price_krw"),
                "currency":"KRW","source":x.get("source") or "persistent DB",
                "checked_at":x.get("checked_at"),"source_url":x.get("source_url")}
-        if not k:
+        else:
             name,url=_instruction_name(n)
             live=_official_kr_lookup(n) or {}
+            k=None
             if name or live.get("price"):
                 k={"name_ko":name or live.get("name_ko"),"price":live.get("price"),
                    "currency":"KRW","source":"LEGO Korea",
@@ -317,7 +381,10 @@ def persistent_catalog_sync():
                     "price_krw":k.get("price"),"source":k.get("source"),
                     "source_url":k.get("source_url"),"checked_at":k.get("checked_at")})
         out[n]=k
-    saved=sb_upsert(to_save)
-    return jsonify(ok=True,items=out,persistent=sb_enabled(),saved=saved,
-                   db_hits=len(stored),new_items=len(to_save),
-                   verified_count=len(verified))
+    write_diag=sb_upsert(to_save,diagnostic=True)
+    return jsonify(ok=True,items=out,persistent=sb_enabled(),
+                   saved=bool(write_diag.get("ok")),db_hits=len(stored),
+                   new_items=len(to_save),verified_count=len(verified),
+                   total_available=len(set(verified)|set(stored)|set(k for k,v in out.items() if v)),
+                   supabase={"read":read_diag,"write":write_diag})
+
