@@ -14,5 +14,13 @@
     "source": "LEGO Korea 조립 설명서",
     "checked_at": "2026-09-20",
     "source_url": "https://www.lego.com/ko-kr/service/building-instructions/10305"
+  },
+  "60257": {
+    "name_ko": "차량 정비소",
+    "price": 74900,
+    "currency": "KRW",
+    "source": "한국 카탈로그 검증",
+    "checked_at": "2026-09-21",
+    "source_url": "https://www.brickmecha.net/lego-instructions.php?lego-instructions-page-no=12&lego-set-instructions-book-no=2&lego-set-no=60257&lng=ko&page="
   }
 }

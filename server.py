@@ -13,7 +13,7 @@ def health():
         cache_items=len(CACHE),
         kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0,
         supabase_configured=bool(os.environ.get("SUPABASE_URL","") and os.environ.get("SUPABASE_SERVICE_KEY","")),
-        version="v26"
+        version="v27"
     )
 @app.get("/api/search")
 def search():
@@ -408,7 +408,7 @@ def _bad_page_text(value):
     return (not x) or any(m in x for m in BLOCKED_PAGE_MARKERS)
 
 def _clean_lego_title(s, number):
-    if not s: return None
+    if not s or _bad_page_text(str(s)): return None
     s=re.sub(r"<[^>]+>"," ",str(s))
     s=s.replace("&amp;","&").replace("&quot;",'"').replace("&#39;","'")
     s=re.sub(r"\\s+"," ",s).strip(" -|")
@@ -459,45 +459,6 @@ def _instruction_name(number):
         except Exception:
             continue
     return None,None
-
-def _official_kr_lookup(number):
-    now=time.time()
-    c=LIVE_KR_CACHE.get(number)
-    if c and now-c["ts"]<LIVE_KR_TTL: return c["data"]
-    headers={"User-Agent":"Mozilla/5.0 (compatible; LEGOCollector/1.0)","Accept-Language":"ko-KR,ko;q=0.9,en;q=0.5"}
-    urls=[
-      "https://www.lego.com/ko-kr/search?q="+number,
-      "https://www.lego.com/ko-kr/service/building-instructions/"+number
-    ]
-    result=None
-    for url in urls:
-        try:
-            t=requests.get(url,headers=headers,timeout=12).text
-            if number not in t: continue
-            name=None
-            for p in [
-              r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)',
-              r'"productName"\s*:\s*"([^"]+)"',
-              r'"name"\s*:\s*"([^"]+)"'
-            ]:
-                mm=re.search(p,t,re.I)
-                if mm:
-                    cand=_clean_text(mm.group(1))
-                    if cand and len(cand)>2 and "LEGO" not in cand.upper():
-                        name=cand; break
-            price=_krw_from_text(t)
-            if name or price:
-                result={"name_ko":name,"price":price,"currency":"KRW","source":"LEGO Korea live",
-                        "checked_at":time.strftime("%Y-%m-%d"),"source_url":url}
-                break
-        except: pass
-    LIVE_KR_CACHE[number]={"ts":now,"data":result}
-    return result
-
-
-SUPABASE_URL=os.environ.get("SUPABASE_URL","").rstrip("/")
-SUPABASE_SERVICE_KEY=os.environ.get("SUPABASE_SERVICE_KEY","")
-SUPABASE_TABLE=os.environ.get("SUPABASE_TABLE","lego_kr_catalog")
 
 def _sb_headers(prefer=None):
     h={"apikey":SUPABASE_SERVICE_KEY,"Content-Type":"application/json"}
@@ -553,31 +514,6 @@ def sb_upsert(rows, diagnostic=False):
         return info if diagnostic else False
 
 
-def _instruction_name(number):
-    # LEGO Korea building-instructions pages are a stronger source for official Korean names,
-    # including retired sets.
-    headers={"User-Agent":"Mozilla/5.0 (compatible; LEGOCollector/1.0)",
-             "Accept-Language":"ko-KR,ko;q=0.9,en;q=0.5"}
-    urls=[
-      f"https://www.lego.com/ko-kr/service/building-instructions/{number}",
-      f"https://www.lego.com/ko-kr/service/building-instructions/search-results?page=1&searchString={number}"
-    ]
-    for url in urls:
-        try:
-            t=requests.get(url,headers=headers,timeout=12).text
-            # Exact-number result/card or page H1.
-            pats=[
-              r'<h1[^>]*>(.*?)</h1>',
-              rf'{re.escape(number)}\s+([^<"\n]{{2,120}})'
-            ]
-            for p in pats:
-                for m in re.finditer(p,t,re.I|re.S):
-                    name=_clean_text(m.group(1))
-                    if name and name not in ("조립 설명서","검색 결과") and len(name)<140:
-                        return name,url
-        except: pass
-    return None,None
-
 def _valid_kr_name(name):
     return bool(name and re.search(r"[가-힣]",str(name)) and not _bad_page_text(str(name)))
 
@@ -614,6 +550,8 @@ def kr_lookup_debug(number):
         stored["name_ko"]=None
     instruction_name,instruction_url=_instruction_name(n)
     live=_official_kr_lookup(n) or {}
+    if live.get("name_ko") and not _valid_kr_name(live.get("name_ko")):
+        live["name_ko"]=None
     fallback=_kr_catalog_fallback(n) or {}
 
     name=(live.get("name_ko") or instruction_name or fallback.get("name_ko") or verified.get("name_ko")
@@ -654,6 +592,8 @@ def kr_collect():
             stored["name_ko"]=None
         instruction_name,instruction_url=_instruction_name(n)
         live=_official_kr_lookup(n) or {}
+        if live.get("name_ko") and not _valid_kr_name(live.get("name_ko")):
+            live["name_ko"]=None
         fallback=_kr_catalog_fallback(n) or {}
         name=live.get("name_ko") or instruction_name or fallback.get("name_ko") or verified.get("name_ko") or stored.get("name_ko")
         price=(live.get("price") if live.get("price") is not None else
