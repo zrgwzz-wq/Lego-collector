@@ -13,7 +13,7 @@ def health():
         cache_items=len(CACHE),
         kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0,
         supabase_configured=bool(os.environ.get("SUPABASE_URL","") and os.environ.get("SUPABASE_SERVICE_KEY","")),
-        version="v24"
+        version="v25"
     )
 @app.get("/api/search")
 def search():
@@ -115,6 +115,49 @@ def _krw_from_text(t):
                 if "priceCentAmount" in p and x>1000000: x//=100
                 if 5000 <= x <= 3000000: return x
             except: pass
+    return None
+
+def _kr_catalog_fallback(number):
+    """Fallback for retired Korean sets when LEGO Korea blocks Render.
+    Uses a Korean catalog page that exposes set number, Korean name and original retail price.
+    """
+    n=str(number)
+    url=f"https://www.brickmecha.net/lego-instructions.php?lego-set-no={n}&lng=ko&page="
+    headers={"User-Agent":"Mozilla/5.0 AppleWebKit/537.36 Chrome/143 Safari/537.36",
+             "Accept-Language":"ko-KR,ko;q=0.9,en;q=0.7"}
+    try:
+        r=requests.get(url,headers=headers,timeout=12)
+        if not r.ok or n not in r.text:
+            return None
+        t=r.text
+        # Strip tags for stable Korean label parsing.
+        plain=re.sub(r"<script.*?</script>|<style.*?</style>"," ",t,flags=re.I|re.S)
+        plain=re.sub(r"<[^>]+>"," ",plain)
+        plain=re.sub(r"&nbsp;"," ",plain)
+        plain=re.sub(r"\s+"," ",plain)
+
+        name=None
+        m=re.search(r"레고\s*제품명\s*[:：]\s*(.{1,100}?)(?=부품|발매|레고\s*제품번호|$)",plain)
+        if m:
+            name=m.group(1).strip(" :-")
+        if not name:
+            # Page title commonly starts with the Korean set name followed by the number.
+            m=re.search(rf"([가-힣A-Za-z0-9®™·&'’\-\s]{{2,80}}?)\s+{re.escape(n)}\s+레고",plain)
+            if m and re.search(r"[가-힣]",m.group(1)):
+                name=m.group(1).strip()
+
+        price=None
+        m=re.search(r"발매\s*당시\s*판매가\s*[:：]\s*([0-9,]+)\s*원",plain)
+        if m:
+            try: price=int(m.group(1).replace(",",""))
+            except: pass
+
+        if name or price:
+            return {"name_ko":name,"price":price,"currency":"KRW",
+                    "source":"BrickMecha 한국 카탈로그",
+                    "source_url":r.url,"checked_at":time.strftime("%Y-%m-%d")}
+    except Exception:
+        pass
     return None
 
 def _official_kr_lookup(number):
@@ -533,14 +576,16 @@ def kr_lookup_debug(number):
     stored=(sb_get([n]).get(n) if sb_enabled() else None) or {}
     instruction_name,instruction_url=_instruction_name(n)
     live=_official_kr_lookup(n) or {}
+    fallback=_kr_catalog_fallback(n) or {}
 
-    name=(live.get("name_ko") or instruction_name or verified.get("name_ko")
+    name=(live.get("name_ko") or instruction_name or fallback.get("name_ko") or verified.get("name_ko")
           or stored.get("name_ko"))
     price=(live.get("price") if live.get("price") is not None else
+           fallback.get("price") if fallback.get("price") is not None else
            verified.get("price") if verified.get("price") is not None else
            stored.get("price_krw"))
-    source_url=live.get("source_url") or instruction_url or verified.get("source_url") or stored.get("source_url")
-    source="LEGO Korea" if (live or instruction_name) else (verified.get("source") or stored.get("source"))
+    source_url=live.get("source_url") or instruction_url or fallback.get("source_url") or verified.get("source_url") or stored.get("source_url")
+    source="LEGO Korea" if (live or instruction_name) else (fallback.get("source") or verified.get("source") or stored.get("source"))
     item=None
     if name or price is not None:
         item={"name_ko":name,"price":price,"currency":"KRW","source":source,
@@ -552,6 +597,8 @@ def kr_lookup_debug(number):
     return jsonify(ok=bool(item),number=n,item=item,
                    official_name_found=bool(instruction_name or live.get("name_ko")),
                    official_price_found=live.get("price") is not None,
+                   fallback_found=bool(fallback),
+                   data_source=source,
                    official_url=source_url,persistent=sb_enabled())
 
 
@@ -567,13 +614,15 @@ def kr_collect():
         stored=(sb_get([n]).get(n) if sb_enabled() else None) or {}
         instruction_name,instruction_url=_instruction_name(n)
         live=_official_kr_lookup(n) or {}
-        name=live.get("name_ko") or instruction_name or verified.get("name_ko") or stored.get("name_ko")
+        fallback=_kr_catalog_fallback(n) or {}
+        name=live.get("name_ko") or instruction_name or fallback.get("name_ko") or verified.get("name_ko") or stored.get("name_ko")
         price=(live.get("price") if live.get("price") is not None else
+               fallback.get("price") if fallback.get("price") is not None else
                verified.get("price") if verified.get("price") is not None else stored.get("price_krw"))
         if name or price is not None:
             item={"name_ko":name,"price":price,"currency":"KRW",
-                  "source":"LEGO Korea" if (live or instruction_name) else (verified.get("source") or stored.get("source")),
-                  "source_url":live.get("source_url") or instruction_url or verified.get("source_url") or stored.get("source_url"),
+                  "source":"LEGO Korea" if (live or instruction_name) else (fallback.get("source") or verified.get("source") or stored.get("source")),
+                  "source_url":live.get("source_url") or instruction_url or fallback.get("source_url") or verified.get("source_url") or stored.get("source_url"),
                   "checked_at":time.strftime("%Y-%m-%d")}
             results[n]=item
             if sb_enabled():
