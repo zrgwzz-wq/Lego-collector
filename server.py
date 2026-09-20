@@ -13,7 +13,7 @@ def health():
         cache_items=len(CACHE),
         kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0,
         supabase_configured=bool(os.environ.get("SUPABASE_URL","") and os.environ.get("SUPABASE_SERVICE_KEY","")),
-        version="v25"
+        version="v26"
     )
 @app.get("/api/search")
 def search():
@@ -122,7 +122,7 @@ def _kr_catalog_fallback(number):
     Uses a Korean catalog page that exposes set number, Korean name and original retail price.
     """
     n=str(number)
-    url=f"https://www.brickmecha.net/lego-instructions.php?lego-set-no={n}&lng=ko&page="
+    url=f"https://www.brickmecha.net/lego-instructions.php?lego-instructions-page-no=1&lego-set-instructions-book-no=1&lego-set-no={n}&lng=ko&page="
     headers={"User-Agent":"Mozilla/5.0 AppleWebKit/537.36 Chrome/143 Safari/537.36",
              "Accept-Language":"ko-KR,ko;q=0.9,en;q=0.7"}
     try:
@@ -137,7 +137,7 @@ def _kr_catalog_fallback(number):
         plain=re.sub(r"\s+"," ",plain)
 
         name=None
-        m=re.search(r"레고\s*제품명\s*[:：]\s*(.{1,100}?)(?=부품|발매|레고\s*제품번호|$)",plain)
+        m=re.search(r"레고\s*제품명\s*[:：]?\s*(.{1,100}?)(?=부품(?:합계)?|발매\s*당시|레고\s*제품번호|$)",plain)
         if m:
             name=m.group(1).strip(" :-")
         if not name:
@@ -147,7 +147,7 @@ def _kr_catalog_fallback(number):
                 name=m.group(1).strip()
 
         price=None
-        m=re.search(r"발매\s*당시\s*판매가\s*[:：]\s*([0-9,]+)\s*원",plain)
+        m=re.search(r"발매\s*당시\s*판매가\s*[:：]?\s*([0-9,]+)\s*원",plain)
         if m:
             try: price=int(m.group(1).replace(",",""))
             except: pass
@@ -182,6 +182,8 @@ def _official_kr_lookup(number):
             if not r.ok: continue
             t=r.text
             final_url=r.url
+            if _bad_page_text(t[:5000]):
+                continue
 
             # 다른 세트 검색 결과가 섞이는 것을 방지.
             if n not in t and n not in final_url:
@@ -396,6 +398,15 @@ def supabase_diagnostic():
     result["ok"]=bool(result.get("read",{}).get("ok") and result.get("write",{}).get("ok"))
     return jsonify(result),200
 
+BLOCKED_PAGE_MARKERS = (
+    "sorry, you have been blocked", "access denied", "attention required",
+    "just a moment", "cloudflare", "captcha", "request blocked"
+)
+
+def _bad_page_text(value):
+    x=(value or "").strip().lower()
+    return (not x) or any(m in x for m in BLOCKED_PAGE_MARKERS)
+
 def _clean_lego_title(s, number):
     if not s: return None
     s=re.sub(r"<[^>]+>"," ",str(s))
@@ -567,6 +578,31 @@ def _instruction_name(number):
         except: pass
     return None,None
 
+def _valid_kr_name(name):
+    return bool(name and re.search(r"[가-힣]",str(name)) and not _bad_page_text(str(name)))
+
+@app.post("/api/kr-cleanup")
+def kr_cleanup():
+    """Known challenge/error text is ignored by all reads; this endpoint overwrites requested bad rows
+    when a fresh Korean source can be found."""
+    data=request.get_json(silent=True) or {}
+    nums=[re.sub(r"[^0-9]","",str(x)) for x in (data.get("numbers") or [])][:50]
+    fixed={}
+    for n in [x for x in nums if x]:
+        old=(sb_get([n]).get(n) if sb_enabled() else None) or {}
+        if old and not _valid_kr_name(old.get("name_ko")):
+            fb=_kr_catalog_fallback(n) or {}
+            ins,ins_url=_instruction_name(n)
+            name=fb.get("name_ko") or ins
+            price=fb.get("price")
+            if name or price is not None:
+                row={"set_number":n,"name_ko":name,"price_krw":price,
+                     "source":fb.get("source") or "LEGO Korea 조립 설명서",
+                     "source_url":fb.get("source_url") or ins_url,
+                     "checked_at":time.strftime("%Y-%m-%d")}
+                sb_upsert([row]); fixed[n]=row
+    return jsonify(ok=True,fixed=fixed,count=len(fixed))
+
 @app.get("/api/kr-lookup/<number>")
 def kr_lookup_debug(number):
     n=re.sub(r"[^0-9]","",str(number))
@@ -574,6 +610,8 @@ def kr_lookup_debug(number):
 
     verified=load_kr_catalog().get(n) or {}
     stored=(sb_get([n]).get(n) if sb_enabled() else None) or {}
+    if stored.get("name_ko") and not _valid_kr_name(stored.get("name_ko")):
+        stored["name_ko"]=None
     instruction_name,instruction_url=_instruction_name(n)
     live=_official_kr_lookup(n) or {}
     fallback=_kr_catalog_fallback(n) or {}
@@ -612,6 +650,8 @@ def kr_collect():
     for n in nums:
         verified=load_kr_catalog().get(n) or {}
         stored=(sb_get([n]).get(n) if sb_enabled() else None) or {}
+        if stored.get("name_ko") and not _valid_kr_name(stored.get("name_ko")):
+            stored["name_ko"]=None
         instruction_name,instruction_url=_instruction_name(n)
         live=_official_kr_lookup(n) or {}
         fallback=_kr_catalog_fallback(n) or {}
