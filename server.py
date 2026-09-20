@@ -13,7 +13,7 @@ def health():
         cache_items=len(CACHE),
         kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0,
         supabase_configured=bool(os.environ.get("SUPABASE_URL","") and os.environ.get("SUPABASE_SERVICE_KEY","")),
-        version="v23.1"
+        version="v23.2"
     )
 @app.get("/api/search")
 def search():
@@ -405,24 +405,6 @@ def _official_kr_lookup(number):
     LIVE_KR_CACHE[number]={"ts":now,"data":result}
     return result
 
-@app.post("/api/catalog-auto-refresh")
-def catalog_auto_refresh():
-    body=request.get_json(silent=True) or {}
-    nums=[]
-    for x in body.get("numbers",[]):
-        n=re.sub(r"[^0-9]","",str(x))
-        if n and n not in nums: nums.append(n)
-    verified=load_kr_catalog()
-    discovered=refresh_discovered_kr(False)
-    items={}
-    for n in nums[:100]:
-        k=verified.get(n) or discovered.get(n)
-        if not k: k=_official_kr_lookup(n)
-        items[n]=k
-    return jsonify(ok=True,items=items,verified_count=len(verified),
-                   discovered_count=len(discovered),
-                   total_available=len(set(verified)|set(discovered)),
-                   refreshed_at=time.strftime("%Y-%m-%d %H:%M:%S"))
 
 SUPABASE_URL=os.environ.get("SUPABASE_URL","").rstrip("/")
 SUPABASE_SERVICE_KEY=os.environ.get("SUPABASE_SERVICE_KEY","")
@@ -481,29 +463,6 @@ def sb_upsert(rows, diagnostic=False):
         info["error"]=str(e)[:500]
         return info if diagnostic else False
 
-@app.get("/api/supabase-diagnostic")
-def supabase_diagnostic():
-    result={
-        "ok":False,
-        "configured":sb_enabled(),
-        "url_configured":bool(SUPABASE_URL),
-        "key_configured":bool(SUPABASE_SERVICE_KEY),
-        "key_type":"new_secret" if SUPABASE_SERVICE_KEY.startswith("sb_secret_") else ("legacy_or_other" if SUPABASE_SERVICE_KEY else "missing"),
-        "table":SUPABASE_TABLE
-    }
-    if not sb_enabled():
-        result["error"]="SUPABASE_URL or SUPABASE_SERVICE_KEY missing"
-        return jsonify(result),200
-    _,read_info=sb_get(["10300"],diagnostic=True)
-    result["read"]=read_info
-    # Seed the verified 10300 row as a safe write test; no secret is returned.
-    seed=load_kr_catalog().get("10300")
-    if seed:
-        row={"set_number":"10300","name_ko":seed.get("name_ko"),"price_krw":seed.get("price"),
-             "source":seed.get("source"),"source_url":seed.get("source_url"),"checked_at":seed.get("checked_at")}
-        result["write"]=sb_upsert([row],diagnostic=True)
-    result["ok"]=bool(result.get("read",{}).get("ok") and result.get("write",{}).get("ok"))
-    return jsonify(result),200
 
 def _instruction_name(number):
     # LEGO Korea building-instructions pages are a stronger source for official Korean names,
