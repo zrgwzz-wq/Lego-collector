@@ -13,7 +13,7 @@ def health():
         cache_items=len(CACHE),
         kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0,
         supabase_configured=bool(os.environ.get("SUPABASE_URL","") and os.environ.get("SUPABASE_SERVICE_KEY","")),
-        version="v29"
+        version="v30"
     )
 @app.get("/api/search")
 def search():
@@ -143,54 +143,89 @@ def _safe_price(value):
         v=int(value); return v if 1000<=v<=10000000 else None
     except: return None
 
-def _danawa_kr_lookup(number):
+def _detail_page_metadata(html, number):
     n=str(number)
-    url=f"https://search.danawa.com/mobile/dsearch.php?keyword={n}"
-    h={"User-Agent":"Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/143 Mobile Safari/537.36",
-       "Accept-Language":"ko-KR,ko;q=0.9"}
+    if not html or _bad_page_text(html[:5000]) or n not in html: return (None,None)
+    text=re.sub(r"\\u([0-9a-fA-F]{4})",lambda m: chr(int(m.group(1),16)),html)
+    plain=re.sub(r"<[^>]+>"," ",text); plain=re.sub(r"\s+"," ",plain)
+    price=_safe_price(_extract_krw(plain,("발매가","출시가","정가")))
+    candidates=[]
+    patterns=[
+        "<meta[^>]+property=[\\\"']og:title[\\\"'][^>]+content=[\\\"']([^\\\"']+)[\\\"']",
+        "<meta[^>]+content=[\\\"']([^\\\"']+)[\\\"'][^>]+property=[\\\"']og:title[\\\"']",
+        "<h1[^>]*>(.*?)</h1>",
+        "\\\"name\\\"\\s*:\\s*\\\"([^\\\"]+)\\\""
+    ]
+    for pat in patterns:
+        for m in re.finditer(pat,text,re.I|re.S):
+            candidates.append(re.sub(r"<[^>]+>"," ",m.group(1)))
+    name=None
+    for c in candidates:
+        c=re.sub(rf"\\b{re.escape(n)}\\b"," ",c)
+        c=re.sub(r"(?i)\\bLEGO\\b|레고"," ",c)
+        c=re.sub(r"\\s+"," ",c).strip(" -|")
+        name=_safe_kr_product_name(c,n)
+        if name: break
+    return name,price
+
+def _extract_detail_links(html, base, number, allowed_host):
+    """Search pages are discovery only; their text is never saved as product metadata."""
+    from urllib.parse import urljoin, urlparse
+    n=str(number); links=[]
+    for href in re.findall(r"href=[\\\"']([^\\\"']+)[\\\"']",html or "",re.I):
+        u=urljoin(base,href.replace("&amp;","&"))
+        try:
+            host=urlparse(u).netloc.lower()
+        except: continue
+        if allowed_host not in host: continue
+        # Product-ish URL only. Exact number may be in URL or nearby page search can still lead to detail.
+        if any(x in u.lower() for x in ("/products/","/product/","goods","detail")):
+            if u not in links: links.append(u)
+        if len(links)>=8: break
+    return links
+
+def _kream_kr_lookup(number):
+    n=str(number); search=f"https://kream.co.kr/search?keyword={n}"
+    h={"User-Agent":"Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/143 Mobile Safari/537.36","Accept-Language":"ko-KR,ko;q=0.9"}
     try:
-        r=requests.get(url,headers=h,timeout=12)
+        r=requests.get(search,headers=h,timeout=12)
         if not r.ok or _bad_page_text(r.text[:5000]): return None
-        t=r.text
-        # Prefer a LEGO result containing the exact set number.
-        plain=re.sub(r"<[^>]+>"," ",t)
-        plain=re.sub(r"\s+"," ",plain)
-        m=re.search(rf"(레고[^|]{{0,120}}?\({re.escape(n)}\))",plain,re.I)
-        name=m.group(1).strip() if m else None
-        if name:
-            name=re.sub(r"\s*\((?:일반구매|해외구매|정품)\)\s*$","",name)
-            name=re.sub(rf"\s*\({re.escape(n)}\)\s*$","",name).strip()
-        name=_safe_kr_product_name(name,n)
-        if name:
-            return {"name_ko":name,"price":None,"currency":"KRW",
-                    "source":"다나와 한국 상품정보","source_url":r.url,
-                    "checked_at":time.strftime("%Y-%m-%d")}
+        for u in _extract_detail_links(r.text,r.url,n,"kream.co.kr"):
+            try:
+                d=requests.get(u,headers=h,timeout=12)
+                if not d.ok: continue
+                name,price=_detail_page_metadata(d.text,n)
+                if name or price is not None:
+                    return {"name_ko":name,"price":price,"currency":"KRW","source":"KREAM 상세 발매정보","source_url":d.url,"checked_at":time.strftime("%Y-%m-%d")}
+            except Exception: continue
     except Exception: pass
     return None
 
-def _kream_kr_lookup(number):
-    n=str(number)
-    urls=[f"https://kream.co.kr/search?keyword={n}",f"https://kream.co.kr/search?keyword=LEGO%20{n}"]
+def _danawa_kr_lookup(number):
+    n=str(number); search=f"https://search.danawa.com/mobile/dsearch.php?keyword={n}"
     h={"User-Agent":"Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/143 Mobile Safari/537.36","Accept-Language":"ko-KR,ko;q=0.9"}
-    for url in urls:
-        try:
-            r=requests.get(url,headers=h,timeout=12)
-            if not r.ok or _bad_page_text(r.text[:5000]): continue
-            t=r.text
-            for mm in list(re.finditer(re.escape(n),t,re.I))[:12]:
-                ctx=t[max(0,mm.start()-1200):min(len(t),mm.end()+1800)]
-                plain=re.sub(r"<[^>]+>"," ",ctx); plain=re.sub(r"\s+"," ",plain)
-                price=_safe_price(_extract_krw(plain,("발매가","출시가","정가")))
-                name=None
-                for pat in (rf"(?:레고|LEGO)\s*([^|<>{{}}\[\]\"']{{2,70}}?)\s*(?:{re.escape(n)}|\({re.escape(n)}\))",rf"{re.escape(n)}\s*[-–|:]?\s*([^|<>{{}}\[\]\"']{{2,70}})"):
-                    for m in re.finditer(pat,plain,re.I):
-                        name=_safe_kr_product_name(m.group(1),n)
-                        if name: break
-                    if name: break
-                if price is not None or name:
-                    return {"name_ko":name,"price":price,"currency":"KRW","source":"KREAM 발매정보","source_url":r.url,"checked_at":time.strftime("%Y-%m-%d")}
-        except Exception: continue
+    try:
+        r=requests.get(search,headers=h,timeout=12)
+        if not r.ok or _bad_page_text(r.text[:5000]): return None
+        for u in _extract_detail_links(r.text,r.url,n,"danawa.com"):
+            try:
+                d=requests.get(u,headers=h,timeout=12)
+                if not d.ok: continue
+                name,price=_detail_page_metadata(d.text,n)
+                if name or price is not None:
+                    return {"name_ko":name,"price":price,"currency":"KRW","source":"다나와 상세 상품정보","source_url":d.url,"checked_at":time.strftime("%Y-%m-%d")}
+            except Exception: continue
+    except Exception: pass
     return None
+
+def sb_delete_bad(set_number):
+    if not sb_enabled(): return False
+    try:
+        url=SUPABASE_URL.rstrip("/")+"/rest/v1/lego_kr_catalog?set_number=eq."+str(set_number)
+        r=requests.delete(url,headers=_sb_headers(),timeout=10)
+        return r.status_code in (200,204)
+    except Exception:
+        return False
 
 def _merge_kr_sources(number):
     """Return merged metadata + diagnostics. Price priority:
@@ -200,10 +235,14 @@ def _merge_kr_sources(number):
     n=str(number)
     verified=load_kr_catalog().get(n) or {}
     stored=(sb_get([n]).get(n) if sb_enabled() else None) or {}
+    original_stored_name=stored.get("name_ko")
     if stored.get("name_ko"):
         stored["name_ko"]=_safe_kr_product_name(stored.get("name_ko"),n)
     if stored.get("price_krw") is not None:
         stored["price_krw"]=_safe_price(stored.get("price_krw"))
+    if original_stored_name and not stored.get("name_ko") and stored.get("price_krw") is None:
+        sb_delete_bad(n)
+        stored={}
 
     instruction_name,instruction_url=_instruction_name(n)
     official=_official_kr_lookup(n) or {}
@@ -238,7 +277,7 @@ def _merge_kr_sources(number):
     diag={"official":usable(official),"instructions":bool(instruction_name),
           "kream":usable(kream),"brickmecha":usable(brick),"danawa":usable(danawa),
           "stored":bool(stored.get("name_ko") or stored.get("price_krw") is not None),
-          "verified":bool(verified),"validation":"strict-v29"}
+          "verified":bool(verified),"validation":"detail-verified-v30"}
     return item,diag
 
 def _kr_catalog_fallback(number):
