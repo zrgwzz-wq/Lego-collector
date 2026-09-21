@@ -13,7 +13,7 @@ def health():
         cache_items=len(CACHE),
         kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0,
         supabase_configured=bool(os.environ.get("SUPABASE_URL","") and os.environ.get("SUPABASE_SERVICE_KEY","")),
-        version="v30"
+        version="v31"
     )
 @app.get("/api/search")
 def search():
@@ -143,29 +143,55 @@ def _safe_price(value):
         v=int(value); return v if 1000<=v<=10000000 else None
     except: return None
 
+def _decode_jsonish(text):
+    if not text: return ""
+    try:
+        text=re.sub(r"\\u([0-9a-fA-F]{4})",lambda m: chr(int(m.group(1),16)),text)
+    except Exception: pass
+    return text.replace("\\/","/").replace('\\"','"')
+
 def _detail_page_metadata(html, number):
+    """Strict detail parser: exact set number + structured title; price only from launch-price labels."""
     n=str(number)
-    if not html or _bad_page_text(html[:5000]) or n not in html: return (None,None)
-    text=re.sub(r"\\u([0-9a-fA-F]{4})",lambda m: chr(int(m.group(1),16)),html)
-    plain=re.sub(r"<[^>]+>"," ",text); plain=re.sub(r"\s+"," ",plain)
-    price=_safe_price(_extract_krw(plain,("발매가","출시가","정가")))
-    candidates=[]
-    patterns=[
-        "<meta[^>]+property=[\\\"']og:title[\\\"'][^>]+content=[\\\"']([^\\\"']+)[\\\"']",
-        "<meta[^>]+content=[\\\"']([^\\\"']+)[\\\"'][^>]+property=[\\\"']og:title[\\\"']",
-        "<h1[^>]*>(.*?)</h1>",
-        "\\\"name\\\"\\s*:\\s*\\\"([^\\\"]+)\\\""
+    if not html or _bad_page_text(html[:5000]): return (None,None)
+    text=_decode_jsonish(html)
+    if not re.search(rf"(?<!\d){re.escape(n)}(?!\d)",text): return (None,None)
+
+    # Price must be attached to a launch/MSRP label, not a generic sale/current price.
+    price=None
+    price_patterns=[
+        r'(?:발매가|출시가|정가|retail_price|release_price|original_price)\s*["\']?\s*[:：=]\s*["\']?\s*(?:₩|KRW)?\s*([0-9]{4,8}|[0-9]{1,3}(?:,[0-9]{3})+)',
+        r'(?:발매가|출시가|정가)[^0-9]{0,40}(?:₩\s*)?([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{4,8})\s*원?'
     ]
-    for pat in patterns:
+    for pat in price_patterns:
+        m=re.search(pat,text,re.I)
+        if m:
+            price=_safe_price(m.group(1).replace(",",""))
+            if price is not None: break
+
+    # Product title only from structured/detail title fields.
+    candidates=[]
+    title_patterns=[
+        r'"(?:translated_name|local_name|name_ko|product_name|name)"\s*:\s*"([^"]{2,160})"',
+        r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)["\']',
+        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:title["\']',
+        r'<h1[^>]*>(.*?)</h1>'
+    ]
+    for pat in title_patterns:
         for m in re.finditer(pat,text,re.I|re.S):
-            candidates.append(re.sub(r"<[^>]+>"," ",m.group(1)))
+            c=re.sub(r"<[^>]+>"," ",m.group(1))
+            if n in c or re.search(r"[가-힣]",c):
+                candidates.append(c)
+
     name=None
     for c in candidates:
-        c=re.sub(rf"\\b{re.escape(n)}\\b"," ",c)
-        c=re.sub(r"(?i)\\bLEGO\\b|레고"," ",c)
-        c=re.sub(r"\\s+"," ",c).strip(" -|")
-        name=_safe_kr_product_name(c,n)
-        if name: break
+        c=re.sub(rf"(?<!\d){re.escape(n)}(?!\d)"," ",c)
+        c=re.sub(r"(?i)\bLEGO\b|레고"," ",c)
+        c=re.sub(r"\s+"," ",c).strip(" -|·:")
+        c=_safe_kr_product_name(c,n)
+        if c:
+            name=c
+            break
     return name,price
 
 def _extract_detail_links(html, base, number, allowed_host):
@@ -196,7 +222,7 @@ def _kream_kr_lookup(number):
                 if not d.ok: continue
                 name,price=_detail_page_metadata(d.text,n)
                 if name or price is not None:
-                    return {"name_ko":name,"price":price,"currency":"KRW","source":"KREAM 상세 발매정보","source_url":d.url,"checked_at":time.strftime("%Y-%m-%d")}
+                    return {"name_ko":name,"price":price,"currency":"KRW","source":"KREAM 상세 발매정보 v31","source_url":d.url,"checked_at":time.strftime("%Y-%m-%d")}
             except Exception: continue
     except Exception: pass
     return None
@@ -236,11 +262,17 @@ def _merge_kr_sources(number):
     verified=load_kr_catalog().get(n) or {}
     stored=(sb_get([n]).get(n) if sb_enabled() else None) or {}
     original_stored_name=stored.get("name_ko")
+    old_kream_row=bool(stored and "KREAM" in str(stored.get("source") or "") and
+                       "상세 발매정보 v31" not in str(stored.get("source") or ""))
     if stored.get("name_ko"):
         stored["name_ko"]=_safe_kr_product_name(stored.get("name_ko"),n)
     if stored.get("price_krw") is not None:
         stored["price_krw"]=_safe_price(stored.get("price_krw"))
-    if original_stored_name and not stored.get("name_ko") and stored.get("price_krw") is None:
+    # v30 KREAM rows may contain generic title/current-price data; force a clean recollect.
+    if old_kream_row:
+        sb_delete_bad(n)
+        stored={}
+    elif original_stored_name and not stored.get("name_ko") and stored.get("price_krw") is None:
         sb_delete_bad(n)
         stored={}
 
@@ -277,7 +309,7 @@ def _merge_kr_sources(number):
     diag={"official":usable(official),"instructions":bool(instruction_name),
           "kream":usable(kream),"brickmecha":usable(brick),"danawa":usable(danawa),
           "stored":bool(stored.get("name_ko") or stored.get("price_krw") is not None),
-          "verified":bool(verified),"validation":"detail-verified-v30"}
+          "verified":bool(verified),"validation":"detail-verified-v31"}
     return item,diag
 
 def _kr_catalog_fallback(number):
