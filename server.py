@@ -13,7 +13,7 @@ def health():
         cache_items=len(CACHE),
         kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0,
         supabase_configured=bool(os.environ.get("SUPABASE_URL","") and os.environ.get("SUPABASE_SERVICE_KEY","")),
-        version="v31"
+        version="v32"
     )
 @app.get("/api/search")
 def search():
@@ -220,9 +220,9 @@ def _kream_kr_lookup(number):
             try:
                 d=requests.get(u,headers=h,timeout=12)
                 if not d.ok: continue
-                name,price=_detail_page_metadata(d.text,n)
-                if name or price is not None:
-                    return {"name_ko":name,"price":price,"currency":"KRW","source":"KREAM 상세 발매정보 v31","source_url":d.url,"checked_at":time.strftime("%Y-%m-%d")}
+                _name,price=_detail_page_metadata(d.text,n)
+                if price is not None:
+                    return {"name_ko":None,"price":price,"currency":"KRW","source":"KREAM 상세 발매정보 v32 (가격 전용)","source_url":d.url,"checked_at":time.strftime("%Y-%m-%d")}
             except Exception: continue
     except Exception: pass
     return None
@@ -263,7 +263,7 @@ def _merge_kr_sources(number):
     stored=(sb_get([n]).get(n) if sb_enabled() else None) or {}
     original_stored_name=stored.get("name_ko")
     old_kream_row=bool(stored and "KREAM" in str(stored.get("source") or "") and
-                       "상세 발매정보 v31" not in str(stored.get("source") or ""))
+                       "상세 발매정보 v32" not in str(stored.get("source") or ""))
     if stored.get("name_ko"):
         stored["name_ko"]=_safe_kr_product_name(stored.get("name_ko"),n)
     if stored.get("price_krw") is not None:
@@ -309,7 +309,7 @@ def _merge_kr_sources(number):
     diag={"official":usable(official),"instructions":bool(instruction_name),
           "kream":usable(kream),"brickmecha":usable(brick),"danawa":usable(danawa),
           "stored":bool(stored.get("name_ko") or stored.get("price_krw") is not None),
-          "verified":bool(verified),"validation":"detail-verified-v31"}
+          "verified":bool(verified),"validation":"price-safe-v32"}
     return item,diag
 
 def _kr_catalog_fallback(number):
