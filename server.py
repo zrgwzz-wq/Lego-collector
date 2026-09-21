@@ -13,7 +13,7 @@ def health():
         cache_items=len(CACHE),
         kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0,
         supabase_configured=bool(os.environ.get("SUPABASE_URL","") and os.environ.get("SUPABASE_SERVICE_KEY","")),
-        version="v32"
+        version="v34"
     )
 @app.get("/api/search")
 def search():
@@ -228,21 +228,19 @@ def _kream_kr_lookup(number):
     return None
 
 def _danawa_kr_lookup(number):
+    """v33: Danawa is not trusted as a Korean-name source.
+    Keep a safe probe for diagnostics only; never return page/UI text as product metadata.
+    """
     n=str(number); search=f"https://search.danawa.com/mobile/dsearch.php?keyword={n}"
-    h={"User-Agent":"Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/143 Mobile Safari/537.36","Accept-Language":"ko-KR,ko;q=0.9"}
+    h={"User-Agent":"Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/143 Mobile Safari/537.36",
+       "Accept-Language":"ko-KR,ko;q=0.9"}
     try:
         r=requests.get(search,headers=h,timeout=12)
         if not r.ok or _bad_page_text(r.text[:5000]): return None
-        for u in _extract_detail_links(r.text,r.url,n,"danawa.com"):
-            try:
-                d=requests.get(u,headers=h,timeout=12)
-                if not d.ok: continue
-                name,price=_detail_page_metadata(d.text,n)
-                if name or price is not None:
-                    return {"name_ko":name,"price":price,"currency":"KRW","source":"다나와 상세 상품정보","source_url":d.url,"checked_at":time.strftime("%Y-%m-%d")}
-            except Exception: continue
-    except Exception: pass
-    return None
+        # Deliberately no name extraction. Search HTML is not authoritative enough.
+        return None
+    except Exception:
+        return None
 
 def sb_delete_bad(set_number):
     if not sb_enabled(): return False
@@ -262,16 +260,22 @@ def _merge_kr_sources(number):
     verified=load_kr_catalog().get(n) or {}
     stored=(sb_get([n]).get(n) if sb_enabled() else None) or {}
     original_stored_name=stored.get("name_ko")
-    old_kream_row=bool(stored and "KREAM" in str(stored.get("source") or "") and
-                       "상세 발매정보 v32" not in str(stored.get("source") or ""))
+    stored_source=str(stored.get("source") or "")
+    untrusted_stored_name=bool(original_stored_name and ("KREAM" in stored_source or "다나와" in stored_source))
     if stored.get("name_ko"):
         stored["name_ko"]=_safe_kr_product_name(stored.get("name_ko"),n)
     if stored.get("price_krw") is not None:
         stored["price_krw"]=_safe_price(stored.get("price_krw"))
-    # v30 KREAM rows may contain generic title/current-price data; force a clean recollect.
-    if old_kream_row:
-        sb_delete_bad(n)
-        stored={}
+    if untrusted_stored_name:
+        stored["name_ko"]=None
+        # Preserve a valid price, but erase the untrusted name in Supabase.
+        if stored.get("price_krw") is not None and sb_enabled():
+            sb_upsert([{"set_number":n,"name_ko":None,"price_krw":stored.get("price_krw"),
+                        "source":stored.get("source"),"source_url":stored.get("source_url"),
+                        "checked_at":stored.get("checked_at")}])
+        elif stored.get("price_krw") is None:
+            sb_delete_bad(n)
+            stored={}
     elif original_stored_name and not stored.get("name_ko") and stored.get("price_krw") is None:
         sb_delete_bad(n)
         stored={}
@@ -288,8 +292,7 @@ def _merge_kr_sources(number):
         if candidate.get("price") is not None: candidate["price"]=_safe_price(candidate.get("price"))
 
     name=(official.get("name_ko") or instruction_name or verified.get("name_ko")
-          or kream.get("name_ko") or brick.get("name_ko") or danawa.get("name_ko")
-          or stored.get("name_ko"))
+          or brick.get("name_ko") or stored.get("name_ko"))
     price=(official.get("price") if official.get("price") is not None else
            verified.get("price") if verified.get("price") is not None else
            kream.get("price") if kream.get("price") is not None else
@@ -309,7 +312,7 @@ def _merge_kr_sources(number):
     diag={"official":usable(official),"instructions":bool(instruction_name),
           "kream":usable(kream),"brickmecha":usable(brick),"danawa":usable(danawa),
           "stored":bool(stored.get("name_ko") or stored.get("price_krw") is not None),
-          "verified":bool(verified),"validation":"price-safe-v32"}
+          "verified":bool(verified),"validation":"lego-first-v34"}
     return item,diag
 
 def _kr_catalog_fallback(number):
@@ -356,74 +359,71 @@ def _kr_catalog_fallback(number):
     return None
 
 def _official_kr_lookup(number):
-    """LEGO Korea 공식 제품 페이지에서 한글명과 원화 정가를 찾는다.
-    현재 판매/품절/단종 페이지 모두 대상으로 하며, 찾은 값만 반환한다.
+    """v34: LEGO Korea current product pages are the primary Korean metadata source.
+    Discover an exact official product URL first, then parse only that detail page.
     """
     n=str(number)
-    headers={
-      "User-Agent":"Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/143 Safari/537.36",
-      "Accept-Language":"ko-KR,ko;q=0.9,en;q=0.7"
-    }
+    h={"User-Agent":"Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/143 Mobile Safari/537.36",
+       "Accept-Language":"ko-KR,ko;q=0.9,en;q=0.7"}
+    def parse_detail(r):
+        if not r or not r.ok or _bad_page_text(r.text[:5000]): return None
+        t=r.text
+        # Exact set-number proof is mandatory.
+        if n not in t and n not in r.url: return None
+        name=None
+        for pat in [
+            r'<h1[^>]*>(.*?)</h1>',
+            r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)',
+            r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:title["\']',
+            r'"productName"\s*:\s*"([^"]+)"'
+        ]:
+            for x in re.findall(pat,t,re.I|re.S):
+                c=_clean_lego_title(x,n)
+                if c and _valid_kr_name(c):
+                    name=c; break
+            if name: break
+        price=None
+        for pat in [
+            r'"price"\s*:\s*"?([0-9]{4,7})"?\s*,\s*"priceCurrency"\s*:\s*"KRW"',
+            r'"priceCurrency"\s*:\s*"KRW"\s*,\s*"price"\s*:\s*"?([0-9]{4,7})"?',
+            r'"formattedValue"\s*:\s*"₩?\s*([0-9,]{4,10})"',
+            r'([0-9]{1,3}(?:,[0-9]{3})+)\s*원'
+        ]:
+            m=re.search(pat,t,re.I)
+            if m:
+                price=_safe_price(m.group(1).replace(",",""))
+                if price is not None: break
+        if name or price is not None:
+            return {"name_ko":name,"price":price,"currency":"KRW",
+                    "source":"LEGO Korea 공식","source_url":r.url,
+                    "checked_at":time.strftime("%Y-%m-%d")}
+        return None
 
-    # LEGO 제품 URL은 slug를 몰라도 /product/x-SETNO 형태가 제품으로 연결되는 경우가 많다.
-    # 실패하면 한국 사이트 검색 페이지도 확인한다.
-    urls=[
-      f"https://www.lego.com/ko-kr/product/x-{n}",
-      f"https://www.lego.com/ko-kr/search?q={n}",
-    ]
-    for url in urls:
-        try:
-            r=requests.get(url,headers=headers,timeout=15,allow_redirects=True)
-            if not r.ok: continue
-            t=r.text
-            final_url=r.url
-            if _bad_page_text(t[:5000]):
-                continue
+    # 1) Cheap direct route. LEGO commonly redirects x-SETNO to the canonical slug.
+    try:
+        r=requests.get(f"https://www.lego.com/ko-kr/product/x-{n}",headers=h,timeout=15,allow_redirects=True)
+        got=parse_detail(r)
+        if got: return got
+    except Exception: pass
 
-            # 다른 세트 검색 결과가 섞이는 것을 방지.
-            if n not in t and n not in final_url:
-                continue
-
-            name=None
-            for pat in [
-                r'<h1[^>]*>(.*?)</h1>',
-                r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)',
-                r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:title["\']',
-                r'"productName"\s*:\s*"([^"]+)"',
-                r'"name"\s*:\s*"([^"]+)"'
-            ]:
-                for x in re.findall(pat,t,re.I|re.S):
-                    candidate=_clean_lego_title(x,n)
-                    if candidate:
-                        name=candidate
-                        break
-                if name: break
-
-            # KRW 가격: JSON/구조화 데이터 우선, 화면 텍스트는 보조.
-            price=None
-            price_patterns=[
-                r'"price"\s*:\s*"?([0-9]{4,7})"?\s*,\s*"priceCurrency"\s*:\s*"KRW"',
-                r'"priceCurrency"\s*:\s*"KRW"\s*,\s*"price"\s*:\s*"?([0-9]{4,7})"?',
-                r'"formattedValue"\s*:\s*"₩?\s*([0-9,]{4,10})"',
-                r'([0-9]{1,3}(?:,[0-9]{3})+)\s*원'
-            ]
-            for pat in price_patterns:
-                mm=re.search(pat,t,re.I)
-                if mm:
-                    try:
-                        v=int(mm.group(1).replace(",",""))
-                        if 1000 <= v <= 10000000:
-                            price=v
-                            break
-                    except Exception:
-                        pass
-
-            if name or price:
-                return {"name_ko":name,"price":price,"currency":"KRW",
-                        "source":"LEGO Korea","source_url":final_url,
-                        "checked_at":time.strftime("%Y-%m-%d")}
-        except Exception:
-            continue
+    # 2) Official LEGO Korea search is discovery only. We accept only a product href
+    # whose canonical path ends in this exact set number, then parse that detail page.
+    try:
+        r=requests.get(f"https://www.lego.com/ko-kr/search?q={n}",headers=h,timeout=15,allow_redirects=True)
+        if r.ok and not _bad_page_text(r.text[:5000]):
+            links=[]
+            for href in re.findall(r'href=["\']([^"\']+)["\']',r.text,re.I):
+                href=href.replace("&amp;","&")
+                if re.search(rf'/product/[^?#"\']*-{re.escape(n)}(?:[/?#]|$)',href,re.I):
+                    if href.startswith("/"): href="https://www.lego.com"+href
+                    if href.startswith("https://www.lego.com/") and href not in links: links.append(href)
+            for u in links[:3]:
+                try:
+                    d=requests.get(u,headers=h,timeout=15,allow_redirects=True)
+                    got=parse_detail(d)
+                    if got: return got
+                except Exception: continue
+    except Exception: pass
     return None
 
 @app.post("/api/kr-live-sync")
