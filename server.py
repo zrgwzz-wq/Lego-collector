@@ -13,7 +13,7 @@ def health():
         cache_items=len(CACHE),
         kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0,
         supabase_configured=bool(os.environ.get("SUPABASE_URL","") and os.environ.get("SUPABASE_SERVICE_KEY","")),
-        version="v28"
+        version="v29"
     )
 @app.get("/api/search")
 def search():
@@ -127,6 +127,22 @@ def _extract_krw(text, labels=("발매가","정가","출시가")):
             except: pass
     return None
 
+BAD_KR_NAME_MARKERS=("product_style_code","product_url","검색","로그인","회원가입","구매","판매","관심상품","고객센터","이벤트","kream","danawa","javascript","http://","https://")
+def _safe_kr_product_name(value, number):
+    if not value: return None
+    x=re.sub(r"<[^>]+>"," ",str(value))
+    x=re.sub(r"\\[nrt]"," ",x)
+    x=re.sub(r"\s+"," ",x).strip(" -|:;,")
+    lo=x.lower()
+    if _bad_page_text(x) or any(m.lower() in lo for m in BAD_KR_NAME_MARKERS): return None
+    if not re.search(r"[가-힣]",x) or len(x)<2 or len(x)>80: return None
+    if x.count('"')>1 or "{" in x or "}" in x or x.count(":")>3: return None
+    return x
+def _safe_price(value):
+    try:
+        v=int(value); return v if 1000<=v<=10000000 else None
+    except: return None
+
 def _danawa_kr_lookup(number):
     n=str(number)
     url=f"https://search.danawa.com/mobile/dsearch.php?keyword={n}"
@@ -144,7 +160,8 @@ def _danawa_kr_lookup(number):
         if name:
             name=re.sub(r"\s*\((?:일반구매|해외구매|정품)\)\s*$","",name)
             name=re.sub(rf"\s*\({re.escape(n)}\)\s*$","",name).strip()
-        if name or n in plain:
+        name=_safe_kr_product_name(name,n)
+        if name:
             return {"name_ko":name,"price":None,"currency":"KRW",
                     "source":"다나와 한국 상품정보","source_url":r.url,
                     "checked_at":time.strftime("%Y-%m-%d")}
@@ -152,30 +169,26 @@ def _danawa_kr_lookup(number):
     return None
 
 def _kream_kr_lookup(number):
-    """Best-effort KREAM search. Only accepts pages that contain the exact model number and a launch-price label."""
     n=str(number)
-    urls=[
-      f"https://kream.co.kr/search?keyword={n}",
-      f"https://kream.co.kr/search?keyword=LEGO%20{n}",
-    ]
-    h={"User-Agent":"Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/143 Mobile Safari/537.36",
-       "Accept-Language":"ko-KR,ko;q=0.9"}
+    urls=[f"https://kream.co.kr/search?keyword={n}",f"https://kream.co.kr/search?keyword=LEGO%20{n}"]
+    h={"User-Agent":"Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/143 Mobile Safari/537.36","Accept-Language":"ko-KR,ko;q=0.9"}
     for url in urls:
         try:
             r=requests.get(url,headers=h,timeout=12)
             if not r.ok or _bad_page_text(r.text[:5000]): continue
             t=r.text
-            plain=re.sub(r"<[^>]+>"," ",t); plain=re.sub(r"\s+"," ",plain)
-            if n not in plain: continue
-            price=_extract_krw(t,("발매가","출시가"))
-            # Extract a nearby Korean LEGO title, but never require it.
-            name=None
-            m=re.search(rf"(레고[^<]{{2,100}}?)(?={re.escape(n)}|Lego)",plain,re.I)
-            if m and re.search(r"[가-힣]",m.group(1)): name=m.group(1).strip()
-            if price is not None or name:
-                return {"name_ko":name,"price":price,"currency":"KRW",
-                        "source":"KREAM 발매정보","source_url":r.url,
-                        "checked_at":time.strftime("%Y-%m-%d")}
+            for mm in list(re.finditer(re.escape(n),t,re.I))[:12]:
+                ctx=t[max(0,mm.start()-1200):min(len(t),mm.end()+1800)]
+                plain=re.sub(r"<[^>]+>"," ",ctx); plain=re.sub(r"\s+"," ",plain)
+                price=_safe_price(_extract_krw(plain,("발매가","출시가","정가")))
+                name=None
+                for pat in (rf"(?:레고|LEGO)\s*([^|<>{{}}\[\]\"']{{2,70}}?)\s*(?:{re.escape(n)}|\({re.escape(n)}\))",rf"{re.escape(n)}\s*[-–|:]?\s*([^|<>{{}}\[\]\"']{{2,70}})"):
+                    for m in re.finditer(pat,plain,re.I):
+                        name=_safe_kr_product_name(m.group(1),n)
+                        if name: break
+                    if name: break
+                if price is not None or name:
+                    return {"name_ko":name,"price":price,"currency":"KRW","source":"KREAM 발매정보","source_url":r.url,"checked_at":time.strftime("%Y-%m-%d")}
         except Exception: continue
     return None
 
@@ -187,8 +200,10 @@ def _merge_kr_sources(number):
     n=str(number)
     verified=load_kr_catalog().get(n) or {}
     stored=(sb_get([n]).get(n) if sb_enabled() else None) or {}
-    if stored.get("name_ko") and not _valid_kr_name(stored.get("name_ko")):
-        stored["name_ko"]=None
+    if stored.get("name_ko"):
+        stored["name_ko"]=_safe_kr_product_name(stored.get("name_ko"),n)
+    if stored.get("price_krw") is not None:
+        stored["price_krw"]=_safe_price(stored.get("price_krw"))
 
     instruction_name,instruction_url=_instruction_name(n)
     official=_official_kr_lookup(n) or {}
@@ -197,6 +212,9 @@ def _merge_kr_sources(number):
     brick=_kr_catalog_fallback(n) or {}
     kream=_kream_kr_lookup(n) or {}
     danawa=_danawa_kr_lookup(n) or {}
+    for candidate in (official,brick,kream,danawa):
+        if candidate.get("name_ko"): candidate["name_ko"]=_safe_kr_product_name(candidate.get("name_ko"),n)
+        if candidate.get("price") is not None: candidate["price"]=_safe_price(candidate.get("price"))
 
     name=(official.get("name_ko") or instruction_name or verified.get("name_ko")
           or kream.get("name_ko") or brick.get("name_ko") or danawa.get("name_ko")
@@ -216,9 +234,11 @@ def _merge_kr_sources(number):
     if name or price is not None:
         item={"name_ko":name,"price":price,"currency":"KRW","source":source,
               "source_url":source_url,"checked_at":time.strftime("%Y-%m-%d")}
-    diag={"official":bool(official),"instructions":bool(instruction_name),
-          "kream":bool(kream),"brickmecha":bool(brick),"danawa":bool(danawa),
-          "stored":bool(stored),"verified":bool(verified)}
+    def usable(x): return bool(x and (x.get("name_ko") or x.get("price") is not None))
+    diag={"official":usable(official),"instructions":bool(instruction_name),
+          "kream":usable(kream),"brickmecha":usable(brick),"danawa":usable(danawa),
+          "stored":bool(stored.get("name_ko") or stored.get("price_krw") is not None),
+          "verified":bool(verified),"validation":"strict-v29"}
     return item,diag
 
 def _kr_catalog_fallback(number):
