@@ -13,7 +13,7 @@ def health():
         cache_items=len(CACHE),
         kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0,
         supabase_configured=bool(os.environ.get("SUPABASE_URL","") and os.environ.get("SUPABASE_SERVICE_KEY","")),
-        version="v27"
+        version="v28"
     )
 @app.get("/api/search")
 def search():
@@ -116,6 +116,110 @@ def _krw_from_text(t):
                 if 5000 <= x <= 3000000: return x
             except: pass
     return None
+
+def _extract_krw(text, labels=("발매가","정가","출시가")):
+    plain=re.sub(r"<[^>]+>"," ",text or "")
+    plain=re.sub(r"\s+"," ",plain)
+    for label in labels:
+        m=re.search(re.escape(label)+r"\s*[:：]?\s*₩?\s*([0-9]{1,3}(?:,[0-9]{3})+)\s*원?",plain,re.I)
+        if m:
+            try: return int(m.group(1).replace(",",""))
+            except: pass
+    return None
+
+def _danawa_kr_lookup(number):
+    n=str(number)
+    url=f"https://search.danawa.com/mobile/dsearch.php?keyword={n}"
+    h={"User-Agent":"Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/143 Mobile Safari/537.36",
+       "Accept-Language":"ko-KR,ko;q=0.9"}
+    try:
+        r=requests.get(url,headers=h,timeout=12)
+        if not r.ok or _bad_page_text(r.text[:5000]): return None
+        t=r.text
+        # Prefer a LEGO result containing the exact set number.
+        plain=re.sub(r"<[^>]+>"," ",t)
+        plain=re.sub(r"\s+"," ",plain)
+        m=re.search(rf"(레고[^|]{{0,120}}?\({re.escape(n)}\))",plain,re.I)
+        name=m.group(1).strip() if m else None
+        if name:
+            name=re.sub(r"\s*\((?:일반구매|해외구매|정품)\)\s*$","",name)
+            name=re.sub(rf"\s*\({re.escape(n)}\)\s*$","",name).strip()
+        if name or n in plain:
+            return {"name_ko":name,"price":None,"currency":"KRW",
+                    "source":"다나와 한국 상품정보","source_url":r.url,
+                    "checked_at":time.strftime("%Y-%m-%d")}
+    except Exception: pass
+    return None
+
+def _kream_kr_lookup(number):
+    """Best-effort KREAM search. Only accepts pages that contain the exact model number and a launch-price label."""
+    n=str(number)
+    urls=[
+      f"https://kream.co.kr/search?keyword={n}",
+      f"https://kream.co.kr/search?keyword=LEGO%20{n}",
+    ]
+    h={"User-Agent":"Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/143 Mobile Safari/537.36",
+       "Accept-Language":"ko-KR,ko;q=0.9"}
+    for url in urls:
+        try:
+            r=requests.get(url,headers=h,timeout=12)
+            if not r.ok or _bad_page_text(r.text[:5000]): continue
+            t=r.text
+            plain=re.sub(r"<[^>]+>"," ",t); plain=re.sub(r"\s+"," ",plain)
+            if n not in plain: continue
+            price=_extract_krw(t,("발매가","출시가"))
+            # Extract a nearby Korean LEGO title, but never require it.
+            name=None
+            m=re.search(rf"(레고[^<]{{2,100}}?)(?={re.escape(n)}|Lego)",plain,re.I)
+            if m and re.search(r"[가-힣]",m.group(1)): name=m.group(1).strip()
+            if price is not None or name:
+                return {"name_ko":name,"price":price,"currency":"KRW",
+                        "source":"KREAM 발매정보","source_url":r.url,
+                        "checked_at":time.strftime("%Y-%m-%d")}
+        except Exception: continue
+    return None
+
+def _merge_kr_sources(number):
+    """Return merged metadata + diagnostics. Price priority:
+    LEGO Korea -> verified repo -> KREAM launch price -> BrickMecha launch price.
+    Names may additionally come from LEGO instructions or Danawa.
+    """
+    n=str(number)
+    verified=load_kr_catalog().get(n) or {}
+    stored=(sb_get([n]).get(n) if sb_enabled() else None) or {}
+    if stored.get("name_ko") and not _valid_kr_name(stored.get("name_ko")):
+        stored["name_ko"]=None
+
+    instruction_name,instruction_url=_instruction_name(n)
+    official=_official_kr_lookup(n) or {}
+    if official.get("name_ko") and not _valid_kr_name(official.get("name_ko")):
+        official["name_ko"]=None
+    brick=_kr_catalog_fallback(n) or {}
+    kream=_kream_kr_lookup(n) or {}
+    danawa=_danawa_kr_lookup(n) or {}
+
+    name=(official.get("name_ko") or instruction_name or verified.get("name_ko")
+          or kream.get("name_ko") or brick.get("name_ko") or danawa.get("name_ko")
+          or stored.get("name_ko"))
+    price=(official.get("price") if official.get("price") is not None else
+           verified.get("price") if verified.get("price") is not None else
+           kream.get("price") if kream.get("price") is not None else
+           brick.get("price") if brick.get("price") is not None else
+           stored.get("price_krw"))
+
+    chosen = (official if (official.get("name_ko") or official.get("price") is not None) else
+              verified if verified else kream if kream else brick if brick else
+              danawa if danawa else {})
+    source=chosen.get("source") or ("LEGO Korea 조립 설명서" if instruction_name else stored.get("source"))
+    source_url=chosen.get("source_url") or instruction_url or stored.get("source_url")
+    item=None
+    if name or price is not None:
+        item={"name_ko":name,"price":price,"currency":"KRW","source":source,
+              "source_url":source_url,"checked_at":time.strftime("%Y-%m-%d")}
+    diag={"official":bool(official),"instructions":bool(instruction_name),
+          "kream":bool(kream),"brickmecha":bool(brick),"danawa":bool(danawa),
+          "stored":bool(stored),"verified":bool(verified)}
+    return item,diag
 
 def _kr_catalog_fallback(number):
     """Fallback for retired Korean sets when LEGO Korea blocks Render.
@@ -543,73 +647,31 @@ def kr_cleanup():
 def kr_lookup_debug(number):
     n=re.sub(r"[^0-9]","",str(number))
     if not n: return jsonify(ok=False,error="invalid set number"),400
-
-    verified=load_kr_catalog().get(n) or {}
-    stored=(sb_get([n]).get(n) if sb_enabled() else None) or {}
-    if stored.get("name_ko") and not _valid_kr_name(stored.get("name_ko")):
-        stored["name_ko"]=None
-    instruction_name,instruction_url=_instruction_name(n)
-    live=_official_kr_lookup(n) or {}
-    if live.get("name_ko") and not _valid_kr_name(live.get("name_ko")):
-        live["name_ko"]=None
-    fallback=_kr_catalog_fallback(n) or {}
-
-    name=(live.get("name_ko") or instruction_name or fallback.get("name_ko") or verified.get("name_ko")
-          or stored.get("name_ko"))
-    price=(live.get("price") if live.get("price") is not None else
-           fallback.get("price") if fallback.get("price") is not None else
-           verified.get("price") if verified.get("price") is not None else
-           stored.get("price_krw"))
-    source_url=live.get("source_url") or instruction_url or fallback.get("source_url") or verified.get("source_url") or stored.get("source_url")
-    source="LEGO Korea" if (live or instruction_name) else (fallback.get("source") or verified.get("source") or stored.get("source"))
-    item=None
-    if name or price is not None:
-        item={"name_ko":name,"price":price,"currency":"KRW","source":source,
-              "source_url":source_url,"checked_at":time.strftime("%Y-%m-%d")}
-        if sb_enabled():
-            sb_upsert([{"set_number":n,"name_ko":name,"price_krw":price,
-                        "source":source,"source_url":source_url,
-                        "checked_at":item["checked_at"]}])
-    return jsonify(ok=bool(item),number=n,item=item,
-                   official_name_found=bool(instruction_name or live.get("name_ko")),
-                   official_price_found=live.get("price") is not None,
-                   fallback_found=bool(fallback),
-                   data_source=source,
-                   official_url=source_url,persistent=sb_enabled())
+    item,diag=_merge_kr_sources(n)
+    if item and sb_enabled():
+        sb_upsert([{"set_number":n,"name_ko":item.get("name_ko"),"price_krw":item.get("price"),
+                    "source":item.get("source"),"source_url":item.get("source_url"),
+                    "checked_at":item.get("checked_at")}])
+    return jsonify(ok=bool(item),number=n,item=item,persistent=sb_enabled(),
+                   diagnostics=diag)
 
 
 @app.post("/api/kr-collect")
 def kr_collect():
     data=request.get_json(silent=True) or {}
-    nums=data.get("numbers") or []
-    nums=[re.sub(r"[^0-9]","",str(x)) for x in nums][:20]
+    nums=[re.sub(r"[^0-9]","",str(x)) for x in (data.get("numbers") or [])][:10]
     nums=[x for x in nums if x]
-    results={}
+    results={}; diagnostics={}
     for n in nums:
-        verified=load_kr_catalog().get(n) or {}
-        stored=(sb_get([n]).get(n) if sb_enabled() else None) or {}
-        if stored.get("name_ko") and not _valid_kr_name(stored.get("name_ko")):
-            stored["name_ko"]=None
-        instruction_name,instruction_url=_instruction_name(n)
-        live=_official_kr_lookup(n) or {}
-        if live.get("name_ko") and not _valid_kr_name(live.get("name_ko")):
-            live["name_ko"]=None
-        fallback=_kr_catalog_fallback(n) or {}
-        name=live.get("name_ko") or instruction_name or fallback.get("name_ko") or verified.get("name_ko") or stored.get("name_ko")
-        price=(live.get("price") if live.get("price") is not None else
-               fallback.get("price") if fallback.get("price") is not None else
-               verified.get("price") if verified.get("price") is not None else stored.get("price_krw"))
-        if name or price is not None:
-            item={"name_ko":name,"price":price,"currency":"KRW",
-                  "source":"LEGO Korea" if (live or instruction_name) else (fallback.get("source") or verified.get("source") or stored.get("source")),
-                  "source_url":live.get("source_url") or instruction_url or fallback.get("source_url") or verified.get("source_url") or stored.get("source_url"),
-                  "checked_at":time.strftime("%Y-%m-%d")}
+        item,diag=_merge_kr_sources(n)
+        diagnostics[n]=diag
+        if item:
             results[n]=item
             if sb_enabled():
-                sb_upsert([{"set_number":n,"name_ko":name,"price_krw":price,
-                            "source":item["source"],"source_url":item["source_url"],
-                            "checked_at":item["checked_at"]}])
-    return jsonify(ok=True,items=results,count=len(results))
+                sb_upsert([{"set_number":n,"name_ko":item.get("name_ko"),"price_krw":item.get("price"),
+                            "source":item.get("source"),"source_url":item.get("source_url"),
+                            "checked_at":item.get("checked_at")}])
+    return jsonify(ok=True,items=results,count=len(results),diagnostics=diagnostics)
 
 @app.post("/api/persistent-catalog-sync")
 def persistent_catalog_sync():

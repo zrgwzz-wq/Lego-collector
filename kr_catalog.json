@@ -22,5 +22,13 @@
     "source": "한국 카탈로그 검증",
     "checked_at": "2026-09-21",
     "source_url": "https://www.brickmecha.net/lego-instructions.php?lego-instructions-page-no=12&lego-set-instructions-book-no=2&lego-set-no=60257&lng=ko&page="
+  },
+  "21319": {
+    "name_ko": "프렌즈 센트럴 퍼크",
+    "price": 89900,
+    "currency": "KRW",
+    "source": "KREAM 발매정보 검증",
+    "checked_at": "2026-09-21",
+    "source_url": "https://kream.co.kr/products/50654"
   }
 }
