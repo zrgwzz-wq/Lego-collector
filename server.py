@@ -5,51 +5,41 @@ API="https://brickset.com/api/v3.asmx"
 CACHE={}; TTL=21600
 @app.get("/api/kr-overlay/<number>")
 def api_kr_overlay(number):
-    n=_norm_set_number(number)
-    # Reuse the same proven Korean lookup pipeline used by /api/kr-lookup.
-    # This avoids depending on v38.1-only globals and keeps source provenance explicit.
-    stored=sb_get(n) if "sb_get" in globals() else None
-    verified=(KR_CATALOG.get(n) if "KR_CATALOG" in globals() else None)
+    n=str(number).strip().split("-")[0]
+    stored=sb_get(n)
+    verified=KR_CATALOG.get(n) if "KR_CATALOG" in globals() else None
     ko_name=None
     kr_price=None
     name_source=None
     price_source=None
-
     for x in (stored, verified):
-        if not isinstance(x,dict):
+        if not isinstance(x, dict):
             continue
         nm=x.get("name_ko")
         pr=x.get("price")
-        if pr is None: pr=x.get("price_krw")
+        if pr is None:
+            pr=x.get("price_krw")
         src=x.get("source") or "한국 카탈로그"
-        if not ko_name and nm and _safe_kr_product_name(nm):
-            ko_name=nm
+        if not ko_name and isinstance(nm, str) and nm.strip():
+            ko_name=nm.strip()
             name_source=src
-        if kr_price is None:
-            sp=_safe_price(pr)
-            if sp is not None:
-                kr_price=sp
+        if kr_price is None and pr is not None:
+            try:
+                kr_price=int(str(pr).replace(",", ""))
                 price_source=src
-
-    # KREAM is strictly price-only.
+            except (ValueError, TypeError):
+                pass
     if kr_price is None:
         k=_kream_kr_lookup(n)
-        if isinstance(k,dict):
-            sp=_safe_price(k.get("price"))
-            if sp is not None:
-                kr_price=sp
+        if isinstance(k, dict) and k.get("price") is not None:
+            try:
+                kr_price=int(str(k.get("price")).replace(",", ""))
                 price_source=k.get("source") or "KREAM"
-
-    return jsonify({
-        "ok":bool(ko_name or kr_price),
-        "number":n,
-        "name_ko":ko_name,
-        "price":kr_price,
-        "currency":"KRW",
-        "name_source":name_source,
-        "price_source":price_source,
-        "validation":"brickset-ko-overlay-v38.1.1"
-    })
+            except (ValueError, TypeError):
+                pass
+    return jsonify({"ok":bool(ko_name or kr_price),"number":n,"name_ko":ko_name,
+                    "price":kr_price,"currency":"KRW","name_source":name_source,
+                    "price_source":price_source,"validation":"brickset-ko-overlay-v38.2"})
 
 
 @app.get("/")
@@ -62,7 +52,7 @@ def health():
         cache_items=len(CACHE),
         kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0,
         supabase_configured=bool(os.environ.get("SUPABASE_URL","") and os.environ.get("SUPABASE_SERVICE_KEY","")),
-        version="v38.1"
+        version="v38.2"
     )
 @app.get("/api/search")
 def search():
@@ -361,7 +351,7 @@ def _merge_kr_sources(number):
     diag={"official":usable(official),"instructions":bool(instruction_name),
           "kream":usable(kream),"brickmecha":usable(brick),"danawa":usable(danawa),
           "stored":bool(stored.get("name_ko") or stored.get("price_krw") is not None),
-          "verified":bool(verified),"validation":"brickset-ko-overlay-v38.1"}
+          "verified":bool(verified),"validation":"brickset-ko-overlay-v38.2"}
     return item,diag
 
 def _kr_catalog_fallback(number):
@@ -453,7 +443,7 @@ def _lego_catalog_scan(target_number=None):
     return found.get(target) if target else found
 
 def _official_kr_lookup(number):
-    """v38.1: no Render-side LEGO.com crawling.
+    """v38.2: no Render-side LEGO.com crawling.
     Official Korean metadata comes only from verified repo/Supabase records.
     """
     return None
