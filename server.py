@@ -13,7 +13,7 @@ def health():
         cache_items=len(CACHE),
         kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0,
         supabase_configured=bool(os.environ.get("SUPABASE_URL","") and os.environ.get("SUPABASE_SERVICE_KEY","")),
-        version="v35"
+        version="v36"
     )
 @app.get("/api/search")
 def search():
@@ -312,7 +312,7 @@ def _merge_kr_sources(number):
     diag={"official":usable(official),"instructions":bool(instruction_name),
           "kream":usable(kream),"brickmecha":usable(brick),"danawa":usable(danawa),
           "stored":bool(stored.get("name_ko") or stored.get("price_krw") is not None),
-          "verified":bool(verified),"validation":"catalog-first-v35"}
+          "verified":bool(verified),"validation":"official-sitemap-v36"}
     return item,diag
 
 def _kr_catalog_fallback(number):
@@ -356,6 +356,42 @@ def _kr_catalog_fallback(number):
                     "source_url":r.url,"checked_at":time.strftime("%Y-%m-%d")}
     except Exception:
         pass
+    return None
+
+def _lego_sitemap_lookup(number):
+    n=str(number); h={"User-Agent":"Mozilla/5.0","Accept-Language":"ko-KR,ko;q=0.9"}
+    queue=["https://www.lego.com/sitemap.xml","https://www.lego.com/ko-kr/sitemap.xml"]; seen=set(); product_url=None
+    while queue and len(seen)<30 and not product_url:
+        u=queue.pop(0)
+        if u in seen: continue
+        seen.add(u)
+        try:
+            r=requests.get(u,headers=h,timeout=12)
+            if not r.ok: continue
+            locs=re.findall(r'<loc>\s*([^<]+)\s*</loc>',r.text,re.I)
+            for loc in locs:
+                if re.search(rf'/ko-kr/product/[^?#<]*-{re.escape(n)}(?:[/?#]|$)',loc,re.I): product_url=loc.replace("&amp;","&"); break
+            for loc in locs:
+                if loc.endswith('.xml') and ('product' in loc.lower() or 'sitemap' in loc.lower()) and loc not in seen and loc not in queue: queue.append(loc)
+        except Exception: pass
+    if not product_url: return None
+    try:
+        d=requests.get(product_url,headers=h,timeout=15,allow_redirects=True)
+        if not d.ok or _bad_page_text(d.text[:5000]): return None
+        t=d.text; name=None
+        for pat in [r'<h1[^>]*>(.*?)</h1>',r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)']:
+            for x in re.findall(pat,t,re.I|re.S):
+                c=_clean_lego_title(x,n)
+                if c and _valid_kr_name(c): name=c; break
+            if name: break
+        price=None
+        for pat in [r'"price"\s*:\s*"?([0-9]{4,7})"?\s*,\s*"priceCurrency"\s*:\s*"KRW"',r'([0-9]{1,3}(?:,[0-9]{3})+)\s*원']:
+            m=re.search(pat,t,re.I)
+            if m:
+                price=_safe_price(m.group(1).replace(',',''))
+                if price is not None: break
+        if name or price is not None: return {"name_ko":name,"price":price,"currency":"KRW","source":"LEGO Korea 공식","source_url":d.url,"checked_at":time.strftime("%Y-%m-%d")}
+    except Exception: pass
     return None
 
 def _lego_catalog_scan(target_number=None):
@@ -469,7 +505,15 @@ def _official_kr_lookup(number):
                     if got: return got
                 except Exception: continue
     except Exception: pass
+    via_sitemap=_lego_sitemap_lookup(n)
+    if via_sitemap: return via_sitemap
     return _lego_catalog_scan(n)
+
+@app.get("/api/kr-sitemap-test/<number>")
+def api_kr_sitemap_test(number):
+    item=_lego_sitemap_lookup(number)
+    return jsonify({"ok":bool(item),"number":str(number),"item":item,"validation":"official-sitemap-v36"})
+
 
 @app.get("/api/kr-sync-official")
 def api_kr_sync_official():
