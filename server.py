@@ -13,7 +13,7 @@ def health():
         cache_items=len(CACHE),
         kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0,
         supabase_configured=bool(os.environ.get("SUPABASE_URL","") and os.environ.get("SUPABASE_SERVICE_KEY","")),
-        version="v34"
+        version="v35"
     )
 @app.get("/api/search")
 def search():
@@ -312,7 +312,7 @@ def _merge_kr_sources(number):
     diag={"official":usable(official),"instructions":bool(instruction_name),
           "kream":usable(kream),"brickmecha":usable(brick),"danawa":usable(danawa),
           "stored":bool(stored.get("name_ko") or stored.get("price_krw") is not None),
-          "verified":bool(verified),"validation":"lego-first-v34"}
+          "verified":bool(verified),"validation":"catalog-first-v35"}
     return item,diag
 
 def _kr_catalog_fallback(number):
@@ -357,6 +357,51 @@ def _kr_catalog_fallback(number):
     except Exception:
         pass
     return None
+
+def _lego_catalog_scan(target_number=None):
+    """v35: LEGO Korea current catalog discovery, exact-set detail verification."""
+    target=str(target_number) if target_number else None
+    h={"User-Agent":"Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/143 Mobile Safari/537.36",
+       "Accept-Language":"ko-KR,ko;q=0.9,en;q=0.7"}
+    found={}
+    for base in ["https://www.lego.com/ko-kr/categories/all-sets",
+                 "https://www.lego.com/ko-kr/categories/new-sets-and-products"]:
+        for page in range(1,7):
+            u=base+(f"?page={page}" if page>1 else "")
+            try:
+                r=requests.get(u,headers=h,timeout=18,allow_redirects=True)
+                if not r.ok or _bad_page_text(r.text[:5000]): break
+                links=re.findall(r'href=["\']([^"\']*/product/[^"\']+?-([0-9]{4,7})(?:[/?#][^"\']*)?)["\']',r.text,re.I)
+                if not links: break
+                for href,num in links:
+                    if target and num!=target: continue
+                    if num in found: continue
+                    href=href.replace("&amp;","&")
+                    if href.startswith("/"): href="https://www.lego.com"+href
+                    href=href.split("?")[0].split("#")[0]
+                    try:
+                        d=requests.get(href,headers=h,timeout=15,allow_redirects=True)
+                        if not d.ok or _bad_page_text(d.text[:5000]): continue
+                        dt=d.text
+                        if num not in dt and num not in d.url: continue
+                        name=None
+                        for pat in [r'<h1[^>]*>(.*?)</h1>',r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)',r'"productName"\s*:\s*"([^"]+)"']:
+                            for x in re.findall(pat,dt,re.I|re.S):
+                                c=_clean_lego_title(x,num)
+                                if c and _valid_kr_name(c): name=c; break
+                            if name: break
+                        price=None
+                        for pat in [r'"price"\s*:\s*"?([0-9]{4,7})"?\s*,\s*"priceCurrency"\s*:\s*"KRW"',r'"priceCurrency"\s*:\s*"KRW"\s*,\s*"price"\s*:\s*"?([0-9]{4,7})"?',r'"formattedValue"\s*:\s*"₩?\s*([0-9,]{4,10})"',r'([0-9]{1,3}(?:,[0-9]{3})+)\s*원']:
+                            m=re.search(pat,dt,re.I)
+                            if m:
+                                price=_safe_price(m.group(1).replace(",",""))
+                                if price is not None: break
+                        if name or price is not None:
+                            found[num]={"name_ko":name,"price":price,"currency":"KRW","source":"LEGO Korea 공식 카탈로그","source_url":d.url,"checked_at":time.strftime("%Y-%m-%d")}
+                            if target: return found[num]
+                    except Exception: continue
+            except Exception: break
+    return found.get(target) if target else found
 
 def _official_kr_lookup(number):
     """v34: LEGO Korea current product pages are the primary Korean metadata source.
@@ -424,7 +469,15 @@ def _official_kr_lookup(number):
                     if got: return got
                 except Exception: continue
     except Exception: pass
-    return None
+    return _lego_catalog_scan(n)
+
+@app.get("/api/kr-sync-official")
+def api_kr_sync_official():
+    data=_lego_catalog_scan()
+    rows=[{"set_number":n,"name_ko":x.get("name_ko"),"price_krw":x.get("price"),"source":x.get("source"),"source_url":x.get("source_url"),"checked_at":x.get("checked_at")} for n,x in data.items()]
+    persisted=sb_upsert(rows) if rows else False
+    return jsonify({"ok":True,"found":len(rows),"persistent":bool(persisted),"validation":"catalog-sync-v35"})
+
 
 @app.post("/api/kr-live-sync")
 def kr_live_sync():
