@@ -3,6 +3,33 @@ from flask import Flask,request,jsonify,send_from_directory
 app=Flask(__name__); KEY=os.environ.get("BRICKSET_API_KEY","")
 API="https://brickset.com/api/v3.asmx"
 CACHE={}; TTL=21600
+@app.get("/api/kr-overlay/<number>")
+def api_kr_overlay(number):
+    n=_norm_set_number(number)
+    stored=sb_get(n)
+    verified=VERIFIED_KR.get(n)
+    ko_name=None; kr_price=None; name_source=None; price_source=None
+    for x in (stored, verified):
+        if not x: continue
+        nm=x.get("name_ko")
+        pr=x.get("price") if "price" in x else x.get("price_krw")
+        src=x.get("source")
+        if not ko_name and nm and _safe_kr_product_name(nm):
+            ko_name=nm; name_source=src
+        if kr_price is None:
+            sp=_safe_price(pr)
+            if sp is not None:
+                kr_price=sp; price_source=src
+    # KREAM is price-only and never allowed to overwrite the Korean official name.
+    k=_kream_kr_lookup(n)
+    if kr_price is None and k and _safe_price(k.get("price")) is not None:
+        kr_price=_safe_price(k.get("price")); price_source=k.get("source")
+    return jsonify({"ok":bool(ko_name or kr_price),"number":n,
+                    "name_ko":ko_name,"price":kr_price,"currency":"KRW",
+                    "name_source":name_source,"price_source":price_source,
+                    "validation":"brickset-ko-overlay-v38"})
+
+
 @app.get("/")
 def home(): return send_from_directory(".","index.html")
 @app.get("/api/health")
@@ -13,7 +40,7 @@ def health():
         cache_items=len(CACHE),
         kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0,
         supabase_configured=bool(os.environ.get("SUPABASE_URL","") and os.environ.get("SUPABASE_SERVICE_KEY","")),
-        version="v37"
+        version="v38"
     )
 @app.get("/api/search")
 def search():
@@ -312,7 +339,7 @@ def _merge_kr_sources(number):
     diag={"official":usable(official),"instructions":bool(instruction_name),
           "kream":usable(kream),"brickmecha":usable(brick),"danawa":usable(danawa),
           "stored":bool(stored.get("name_ko") or stored.get("price_krw") is not None),
-          "verified":bool(verified),"validation":"official-detail-v37"}
+          "verified":bool(verified),"validation":"brickset-ko-overlay-v38"}
     return item,diag
 
 def _kr_catalog_fallback(number):
@@ -356,83 +383,6 @@ def _kr_catalog_fallback(number):
                     "source_url":r.url,"checked_at":time.strftime("%Y-%m-%d")}
     except Exception:
         pass
-    return None
-
-LEGO_KR_URL_BOOTSTRAP = {
-    # URL discovery bootstrap only; no Korean name or price is hardcoded here.
-    "43026": "https://www.lego.com/ko-kr/product/nike-air-force-1-x-lego-set-43026",
-}
-
-def _lego_official_detail_url_lookup(number):
-    n=str(number)
-    u=LEGO_KR_URL_BOOTSTRAP.get(n)
-    if not u:
-        return None
-    h={"User-Agent":"Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/143 Mobile Safari/537.36",
-       "Accept-Language":"ko-KR,ko;q=0.9,en;q=0.7"}
-    try:
-        d=requests.get(u,headers=h,timeout=15,allow_redirects=True)
-        if not d.ok or _bad_page_text(d.text[:5000]): return None
-        t=d.text
-        if n not in t and n not in d.url: return None
-        name=None
-        for pat in [r'<h1[^>]*>(.*?)</h1>',
-                    r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)']:
-            for x in re.findall(pat,t,re.I|re.S):
-                c=_clean_lego_title(x,n)
-                if c and _valid_kr_name(c):
-                    name=c; break
-            if name: break
-        price=None
-        for pat in [r'"price"\s*:\s*"?([0-9]{4,7})"?\s*,\s*"priceCurrency"\s*:\s*"KRW"',
-                    r'"priceCurrency"\s*:\s*"KRW"\s*,\s*"price"\s*:\s*"?([0-9]{4,7})"?',
-                    r'([0-9]{1,3}(?:,[0-9]{3})+)\s*원']:
-            m=re.search(pat,t,re.I)
-            if m:
-                price=_safe_price(m.group(1).replace(",",""))
-                if price is not None: break
-        if name or price is not None:
-            return {"name_ko":name,"price":price,"currency":"KRW",
-                    "source":"LEGO Korea 공식","source_url":d.url,
-                    "checked_at":time.strftime("%Y-%m-%d")}
-    except Exception:
-        pass
-    return None
-
-def _lego_sitemap_lookup(number):
-    n=str(number); h={"User-Agent":"Mozilla/5.0","Accept-Language":"ko-KR,ko;q=0.9"}
-    queue=["https://www.lego.com/sitemap.xml","https://www.lego.com/ko-kr/sitemap.xml"]; seen=set(); product_url=None
-    while queue and len(seen)<30 and not product_url:
-        u=queue.pop(0)
-        if u in seen: continue
-        seen.add(u)
-        try:
-            r=requests.get(u,headers=h,timeout=12)
-            if not r.ok: continue
-            locs=re.findall(r'<loc>\s*([^<]+)\s*</loc>',r.text,re.I)
-            for loc in locs:
-                if re.search(rf'/ko-kr/product/[^?#<]*-{re.escape(n)}(?:[/?#]|$)',loc,re.I): product_url=loc.replace("&amp;","&"); break
-            for loc in locs:
-                if loc.endswith('.xml') and ('product' in loc.lower() or 'sitemap' in loc.lower()) and loc not in seen and loc not in queue: queue.append(loc)
-        except Exception: pass
-    if not product_url: return None
-    try:
-        d=requests.get(product_url,headers=h,timeout=15,allow_redirects=True)
-        if not d.ok or _bad_page_text(d.text[:5000]): return None
-        t=d.text; name=None
-        for pat in [r'<h1[^>]*>(.*?)</h1>',r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)']:
-            for x in re.findall(pat,t,re.I|re.S):
-                c=_clean_lego_title(x,n)
-                if c and _valid_kr_name(c): name=c; break
-            if name: break
-        price=None
-        for pat in [r'"price"\s*:\s*"?([0-9]{4,7})"?\s*,\s*"priceCurrency"\s*:\s*"KRW"',r'([0-9]{1,3}(?:,[0-9]{3})+)\s*원']:
-            m=re.search(pat,t,re.I)
-            if m:
-                price=_safe_price(m.group(1).replace(',',''))
-                if price is not None: break
-        if name or price is not None: return {"name_ko":name,"price":price,"currency":"KRW","source":"LEGO Korea 공식","source_url":d.url,"checked_at":time.strftime("%Y-%m-%d")}
-    except Exception: pass
     return None
 
 def _lego_catalog_scan(target_number=None):
@@ -481,96 +431,13 @@ def _lego_catalog_scan(target_number=None):
     return found.get(target) if target else found
 
 def _official_kr_lookup(number):
-    """v34: LEGO Korea current product pages are the primary Korean metadata source.
-    Discover an exact official product URL first, then parse only that detail page.
+    """v38: no Render-side LEGO.com crawling.
+    Official Korean metadata comes only from verified repo/Supabase records.
     """
-    n=str(number)
-    h={"User-Agent":"Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/143 Mobile Safari/537.36",
-       "Accept-Language":"ko-KR,ko;q=0.9,en;q=0.7"}
-    def parse_detail(r):
-        if not r or not r.ok or _bad_page_text(r.text[:5000]): return None
-        t=r.text
-        # Exact set-number proof is mandatory.
-        if n not in t and n not in r.url: return None
-        name=None
-        for pat in [
-            r'<h1[^>]*>(.*?)</h1>',
-            r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)',
-            r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:title["\']',
-            r'"productName"\s*:\s*"([^"]+)"'
-        ]:
-            for x in re.findall(pat,t,re.I|re.S):
-                c=_clean_lego_title(x,n)
-                if c and _valid_kr_name(c):
-                    name=c; break
-            if name: break
-        price=None
-        for pat in [
-            r'"price"\s*:\s*"?([0-9]{4,7})"?\s*,\s*"priceCurrency"\s*:\s*"KRW"',
-            r'"priceCurrency"\s*:\s*"KRW"\s*,\s*"price"\s*:\s*"?([0-9]{4,7})"?',
-            r'"formattedValue"\s*:\s*"₩?\s*([0-9,]{4,10})"',
-            r'([0-9]{1,3}(?:,[0-9]{3})+)\s*원'
-        ]:
-            m=re.search(pat,t,re.I)
-            if m:
-                price=_safe_price(m.group(1).replace(",",""))
-                if price is not None: break
-        if name or price is not None:
-            return {"name_ko":name,"price":price,"currency":"KRW",
-                    "source":"LEGO Korea 공식","source_url":r.url,
-                    "checked_at":time.strftime("%Y-%m-%d")}
-        return None
-
-    # 1) Cheap direct route. LEGO commonly redirects x-SETNO to the canonical slug.
-    try:
-        r=requests.get(f"https://www.lego.com/ko-kr/product/x-{n}",headers=h,timeout=15,allow_redirects=True)
-        got=parse_detail(r)
-        if got: return got
-    except Exception: pass
-
-    # 2) Official LEGO Korea search is discovery only. We accept only a product href
-    # whose canonical path ends in this exact set number, then parse that detail page.
-    try:
-        r=requests.get(f"https://www.lego.com/ko-kr/search?q={n}",headers=h,timeout=15,allow_redirects=True)
-        if r.ok and not _bad_page_text(r.text[:5000]):
-            links=[]
-            for href in re.findall(r'href=["\']([^"\']+)["\']',r.text,re.I):
-                href=href.replace("&amp;","&")
-                if re.search(rf'/product/[^?#"\']*-{re.escape(n)}(?:[/?#]|$)',href,re.I):
-                    if href.startswith("/"): href="https://www.lego.com"+href
-                    if href.startswith("https://www.lego.com/") and href not in links: links.append(href)
-            for u in links[:3]:
-                try:
-                    d=requests.get(u,headers=h,timeout=15,allow_redirects=True)
-                    got=parse_detail(d)
-                    if got: return got
-                except Exception: continue
-    except Exception: pass
-    via_detail=_lego_official_detail_url_lookup(n)
-    if via_detail: return via_detail
-    via_sitemap=_lego_sitemap_lookup(n)
-    if via_sitemap: return via_sitemap
-    return _lego_catalog_scan(n)
-
-@app.get("/api/kr-official-detail-test/<number>")
-def api_kr_official_detail_test(number):
-    item=_lego_official_detail_url_lookup(number)
-    return jsonify({"ok":bool(item),"number":str(number),"item":item,
-                    "validation":"official-detail-v37"})
+    return None
 
 
-@app.get("/api/kr-sitemap-test/<number>")
-def api_kr_sitemap_test(number):
-    item=_lego_sitemap_lookup(number)
-    return jsonify({"ok":bool(item),"number":str(number),"item":item,"validation":"official-detail-v37"})
 
-
-@app.get("/api/kr-sync-official")
-def api_kr_sync_official():
-    data=_lego_catalog_scan()
-    rows=[{"set_number":n,"name_ko":x.get("name_ko"),"price_krw":x.get("price"),"source":x.get("source"),"source_url":x.get("source_url"),"checked_at":x.get("checked_at")} for n,x in data.items()]
-    persisted=sb_upsert(rows) if rows else False
-    return jsonify({"ok":True,"found":len(rows),"persistent":bool(persisted),"validation":"catalog-sync-v35"})
 
 
 @app.post("/api/kr-live-sync")
