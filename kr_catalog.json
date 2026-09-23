@@ -95,9 +95,11 @@
   },
   "10342": {
     "name_ko": "핑크 꽃다발",
-    "source": "LEGO Korea 조립설명서 인덱스",
-    "source_url": "https://www.lego.com/ko-kr/service/building-instructions/10342",
-    "checked_at": "2026-09-23"
+    "source": "LEGO Korea 공식",
+    "source_url": "https://www.lego.com/ko-kr/product/pretty-pink-flower-bouquet-10342",
+    "checked_at": "2026-09-24",
+    "price": 79900,
+    "currency": "KRW"
   },
   "10355": {
     "name_ko": "블랙트론 레니게이드",
