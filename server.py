@@ -14,7 +14,7 @@ def api_kr_overlay(number):
     if not item:
         return jsonify(ok=False,number=n,name_ko=None,price=None,currency="KRW",
                        name_source=None,price_source=None,
-                       diagnostics=diag,validation="brickset-ko-overlay-v41")
+                       diagnostics=diag,validation="brickset-ko-overlay-v42")
 
     name=item.get("name_ko")
     price=item.get("price")
@@ -31,7 +31,7 @@ def api_kr_overlay(number):
     return jsonify(ok=True,number=n,name_ko=name,price=price,
                    currency=item.get("currency") or "KRW",
                    name_source=name_source,price_source=price_source,
-                   diagnostics=diag,validation="brickset-ko-overlay-v41")
+                   diagnostics=diag,validation="brickset-ko-overlay-v42")
 
 
 @app.post("/api/kr-catalog-import")
@@ -118,7 +118,7 @@ def health():
         cache_items=len(CACHE),
         kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0,
         supabase_configured=bool(os.environ.get("SUPABASE_URL","") and os.environ.get("SUPABASE_SERVICE_KEY","")),
-        version="v41"
+        version="v42"
     )
 @app.get("/api/search")
 def search():
@@ -147,8 +147,15 @@ def load_kr_catalog():
 def kr_meta():
     number=re.sub(r"[^0-9]","",request.args.get("number",""))
     data=load_kr_catalog().get(number)
-    if not data: return jsonify(found=False,number=number)
-    return jsonify(found=True,number=number,**data)
+    if data:
+        return jsonify(found=True,number=number,**data)
+    stored=(sb_get([number]).get(number) if number and sb_enabled() else None) or {}
+    if stored:
+        return jsonify(found=True,number=number,
+                       name_ko=stored.get("name_ko"),price=stored.get("price_krw"),
+                       currency="KRW",source=stored.get("source"),
+                       source_url=stored.get("source_url"),checked_at=stored.get("checked_at"))
+    return jsonify(found=False,number=number)
 
 @app.get("/api/kr-catalog")
 def kr_catalog():
@@ -366,7 +373,9 @@ def _merge_kr_sources(number):
     stored=(sb_get([n]).get(n) if sb_enabled() else None) or {}
     original_stored_name=stored.get("name_ko")
     stored_source=str(stored.get("source") or "")
-    untrusted_stored_name=bool(original_stored_name and ("KREAM" in stored_source or "다나와" in stored_source))
+    untrusted_stored_name=bool(original_stored_name and
+        (("KREAM" in stored_source and "LEGO Korea" not in stored_source) or
+         ("다나와" in stored_source and "LEGO Korea" not in stored_source)))
     if stored.get("name_ko"):
         stored["name_ko"]=_safe_kr_product_name(stored.get("name_ko"),n)
     if stored.get("price_krw") is not None:
@@ -409,6 +418,14 @@ def _merge_kr_sources(number):
               danawa if danawa else {})
     source=chosen.get("source") or ("LEGO Korea 조립 설명서" if instruction_name else stored.get("source"))
     source_url=chosen.get("source_url") or instruction_url or stored.get("source_url")
+    if instruction_name and not official.get("name_ko") and not verified.get("name_ko"):
+        if price is not None and kream.get("price") is not None:
+            source="LEGO Korea 조립설명서 + KREAM 가격"
+        elif price is not None and brick.get("price") is not None:
+            source="LEGO Korea 조립설명서 + 한국 가격 참고"
+        else:
+            source="LEGO Korea 조립설명서"
+        source_url=instruction_url or source_url
     item=None
     if name or price is not None:
         item={"name_ko":name,"price":price,"currency":"KRW","source":source,
@@ -417,7 +434,7 @@ def _merge_kr_sources(number):
     diag={"official":usable(official),"instructions":bool(instruction_name),
           "kream":usable(kream),"brickmecha":usable(brick),"danawa":usable(danawa),
           "stored":bool(stored.get("name_ko") or stored.get("price_krw") is not None),
-          "verified":bool(verified),"validation":"brickset-ko-overlay-v41"}
+          "verified":bool(verified),"validation":"brickset-ko-overlay-v42"}
     return item,diag
 
 def _kr_catalog_fallback(number):
