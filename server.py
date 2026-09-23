@@ -14,7 +14,7 @@ def api_kr_overlay(number):
     if not item:
         return jsonify(ok=False,number=n,name_ko=None,price=None,currency="KRW",
                        name_source=None,price_source=None,
-                       diagnostics=diag,validation="brickset-ko-overlay-v45")
+                       diagnostics=diag,validation="brickset-ko-overlay-v46")
 
     name=item.get("name_ko")
     price=item.get("price")
@@ -32,7 +32,7 @@ def api_kr_overlay(number):
     return jsonify(ok=True,number=n,name_ko=name,price=price,
                    currency=item.get("currency") or "KRW",
                    name_source=name_source,price_source=price_source,price_type=price_type,
-                   diagnostics=diag,validation="brickset-ko-overlay-v45")
+                   diagnostics=diag,validation="brickset-ko-overlay-v46")
 
 
 @app.post("/api/kr-catalog-import")
@@ -119,7 +119,7 @@ def health():
         cache_items=len(CACHE),
         kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0,
         supabase_configured=bool(os.environ.get("SUPABASE_URL","") and os.environ.get("SUPABASE_SERVICE_KEY","")),
-        version="v45"
+        version="v46"
     )
 @app.get("/api/search")
 def search():
@@ -427,7 +427,7 @@ def _merge_kr_sources(number):
         else:
             source="LEGO Korea 조립설명서"
         source_url=instruction_url or source_url
-    # v45: keep name provenance and price provenance independent.
+    # v46: keep name provenance and price provenance independent.
     if official.get("name_ko"): name_source="LEGO Korea 공식"
     elif instruction_name: name_source="LEGO Korea 조립설명서"
     elif verified.get("name_ko"): name_source=verified.get("source") or "검증 한국 카탈로그"
@@ -459,7 +459,7 @@ def _merge_kr_sources(number):
     diag={"official":usable(official),"instructions":bool(instruction_name),
           "kream":usable(kream),"brickmecha":usable(brick),"danawa":usable(danawa),
           "stored":bool(stored.get("name_ko") or stored.get("price_krw") is not None),
-          "verified":bool(verified),"validation":"brickset-ko-overlay-v45"}
+          "verified":bool(verified),"validation":"brickset-ko-overlay-v46"}
     return item,diag
 
 def _kr_catalog_fallback(number):
@@ -750,44 +750,12 @@ def _clean_lego_title(s, number):
     return s if 1 < len(s) < 120 else None
 
 def _instruction_name(number):
-    """LEGO Korea 공식 조립설명서/검색 페이지에서 한국어 제품명을 찾는다."""
-    urls=[
-      f"https://www.lego.com/ko-kr/service/building-instructions/{number}",
-      f"https://www.lego.com/ko-kr/service/building-instructions/search-results?page=1&searchString={number}",
-      f"https://www.lego.com/ko-kr/service/buildinginstructions/{number}",
-    ]
-    headers={"User-Agent":"Mozilla/5.0 AppleWebKit/537.36 Chrome/143 Safari/537.36",
-             "Accept-Language":"ko-KR,ko;q=0.9,en;q=0.7"}
-    for url in urls:
-        try:
-            r=requests.get(url,headers=headers,timeout=15,allow_redirects=True)
-            if not r.ok: continue
-            t=r.text
-            # h1
-            for x in re.findall(r"<h1[^>]*>(.*?)</h1>",t,re.I|re.S):
-                name=_clean_lego_title(x,number)
-                if name: return name,url
-            # metadata/title
-            pats=[
-              r'<meta[^>]+property=["\\\']og:title["\\\'][^>]+content=["\\\']([^"\\\']+)',
-              r'<meta[^>]+content=["\\\']([^"\\\']+)["\\\'][^>]+property=["\\\']og:title["\\\']',
-              r"<title[^>]*>(.*?)</title>"
-            ]
-            for pat in pats:
-                for x in re.findall(pat,t,re.I|re.S):
-                    name=_clean_lego_title(x,number)
-                    if name: return name,url
-            # visible search result, e.g. "10305 사자 기사의 성"
-            for x in re.findall(rf'{re.escape(str(number))}\\s+([^"<>{{}}]{{2,100}})',t):
-                name=_clean_lego_title(x,number)
-                if name: return name,url
-            # JSON fields
-            for x in re.findall(r'"(?:name|title|productName)"\\s*:\\s*"([^"]*[가-힣][^"]*)"',t,re.I):
-                name=_clean_lego_title(x,number)
-                if name: return name,url
-        except Exception:
-            continue
-    return None,None
+    """v46: Render->LEGO is HTTP 403. Use the verified indexed KR catalog instead."""
+    n=str(number).strip().split("-")[0]
+    row=KR_CATALOG.get(n) if "KR_CATALOG" in globals() else None
+    if row and row.get("name_ko"):
+        return row.get("name_ko"), row.get("source_url")
+    return None, None
 
 def _sb_headers(prefer=None):
     h={"apikey":SUPABASE_SERVICE_KEY,"Content-Type":"application/json"}
@@ -878,7 +846,7 @@ def api_kr_name_diagnostic(number):
     else:
         extract_error=None
     return jsonify(ok=True,number=n,checks=checks,extracted=extracted,
-                   extract_error=extract_error,validation="kr-name-diagnostic-v45")
+                   extract_error=extract_error,validation="kr-name-diagnostic-v46")
 
 
 @app.post("/api/kr-cleanup")
