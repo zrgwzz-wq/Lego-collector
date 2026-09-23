@@ -3,8 +3,8 @@
     "name_ko": "백 투 더 퓨처 타임머신",
     "price": 259900,
     "currency": "KRW",
-    "source": "LEGO Korea",
-    "checked_at": "2026-09-19",
+    "source": "LEGO Korea 공식",
+    "checked_at": "2026-09-24",
     "source_url": "https://www.lego.com/ko-kr/product/back-to-the-future-time-machine-10300"
   },
   "10305": {
@@ -37,7 +37,7 @@
     "currency": "KRW",
     "source": "LEGO Korea 공식",
     "source_url": "https://www.lego.com/ko-kr/product/optimus-prime-10302",
-    "checked_at": "2026-09-23"
+    "checked_at": "2026-09-24"
   },
   "10331": {
     "name_ko": "물총새",
@@ -53,9 +53,11 @@
   },
   "10307": {
     "name_ko": "에펠탑",
-    "source": "LEGO Korea 조립설명서 인덱스",
-    "source_url": "https://www.lego.com/ko-kr/service/building-instructions/10307",
-    "checked_at": "2026-09-23"
+    "source": "LEGO Korea 공식",
+    "source_url": "https://www.lego.com/ko-kr/product/eiffel-tower-10307",
+    "checked_at": "2026-09-24",
+    "price": 850000,
+    "currency": "KRW"
   },
   "10312": {
     "name_ko": "재즈 클럽",
@@ -83,9 +85,11 @@
   },
   "10326": {
     "name_ko": "자연사 박물관",
-    "source": "LEGO Korea 조립설명서 인덱스",
-    "source_url": "https://www.lego.com/ko-kr/service/building-instructions/10326",
-    "checked_at": "2026-09-23"
+    "source": "LEGO Korea 공식",
+    "source_url": "https://www.lego.com/ko-kr/product/natural-history-museum-10326",
+    "checked_at": "2026-09-24",
+    "price": 399900,
+    "currency": "KRW"
   },
   "10344": {
     "name_ko": "행운의 대나무",
@@ -115,9 +119,11 @@
   },
   "10330": {
     "name_ko": "맥라렌 MP4/4와 아일톤 세나",
-    "source": "LEGO Korea 조립설명서 인덱스",
-    "source_url": "https://www.lego.com/ko-kr/service/building-instructions/10330",
-    "checked_at": "2026-09-23"
+    "source": "LEGO Korea 공식",
+    "source_url": "https://www.lego.com/ko-kr/product/mclaren-mp44-ayrton-senna-10330",
+    "checked_at": "2026-09-24",
+    "price": 114900,
+    "currency": "KRW"
   },
   "10358": {
     "name_ko": "Transformers: 사운드웨이브",
@@ -133,8 +139,58 @@
   },
   "10335": {
     "name_ko": "인듀어런스호",
-    "source": "LEGO Korea 조립설명서 인덱스",
-    "source_url": "https://www.lego.com/ko-kr/service/building-instructions/10335",
-    "checked_at": "2026-09-23"
+    "source": "LEGO Korea 공식",
+    "source_url": "https://www.lego.com/ko-kr/product/the-endurance-10335",
+    "checked_at": "2026-09-24",
+    "price": 349900,
+    "currency": "KRW"
+  },
+  "10315": {
+    "name_ko": "선의 정원",
+    "price": 157900,
+    "currency": "KRW",
+    "source": "LEGO Korea 공식",
+    "source_url": "https://www.lego.com/ko-kr/product/tranquil-garden-10315",
+    "checked_at": "2026-09-24"
+  },
+  "10316": {
+    "name_ko": "반지의 제왕: 리븐델",
+    "price": 649900,
+    "currency": "KRW",
+    "source": "LEGO Korea 공식",
+    "source_url": "https://www.lego.com/ko-kr/product/the-lord-of-the-rings-rivendell-10316",
+    "checked_at": "2026-09-24"
+  },
+  "10318": {
+    "name_ko": "콩코드",
+    "price": 269900,
+    "currency": "KRW",
+    "source": "LEGO Korea 공식",
+    "source_url": "https://www.lego.com/ko-kr/product/concorde-10318",
+    "checked_at": "2026-09-24"
+  },
+  "10351": {
+    "name_ko": "셜록 홈즈: 북누크",
+    "price": 169900,
+    "currency": "KRW",
+    "source": "LEGO Korea 공식",
+    "source_url": "https://www.lego.com/ko-kr/product/sherlock-holmes-book-nook-10351",
+    "checked_at": "2026-09-24"
+  },
+  "10352": {
+    "name_ko": "The Simpsons™: Krusty 버거",
+    "price": 279900,
+    "currency": "KRW",
+    "source": "LEGO Korea 공식",
+    "source_url": "https://www.lego.com/ko-kr/product/the-simpsons-krusty-burger-10352",
+    "checked_at": "2026-09-24"
+  },
+  "10363": {
+    "name_ko": "레오나르도 다빈치의 비행 기계",
+    "price": 89900,
+    "currency": "KRW",
+    "source": "LEGO Korea 공식",
+    "source_url": "https://www.lego.com/ko-kr/product/leonardo-da-vincis-flying-machine-10363",
+    "checked_at": "2026-09-24"
   }
 }
