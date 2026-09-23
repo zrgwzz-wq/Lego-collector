@@ -14,7 +14,7 @@ def api_kr_overlay(number):
     if not item:
         return jsonify(ok=False,number=n,name_ko=None,price=None,currency="KRW",
                        name_source=None,price_source=None,
-                       diagnostics=diag,validation="brickset-ko-overlay-v44")
+                       diagnostics=diag,validation="brickset-ko-overlay-v45")
 
     name=item.get("name_ko")
     price=item.get("price")
@@ -32,7 +32,7 @@ def api_kr_overlay(number):
     return jsonify(ok=True,number=n,name_ko=name,price=price,
                    currency=item.get("currency") or "KRW",
                    name_source=name_source,price_source=price_source,price_type=price_type,
-                   diagnostics=diag,validation="brickset-ko-overlay-v44")
+                   diagnostics=diag,validation="brickset-ko-overlay-v45")
 
 
 @app.post("/api/kr-catalog-import")
@@ -119,7 +119,7 @@ def health():
         cache_items=len(CACHE),
         kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0,
         supabase_configured=bool(os.environ.get("SUPABASE_URL","") and os.environ.get("SUPABASE_SERVICE_KEY","")),
-        version="v44"
+        version="v45"
     )
 @app.get("/api/search")
 def search():
@@ -427,7 +427,7 @@ def _merge_kr_sources(number):
         else:
             source="LEGO Korea 조립설명서"
         source_url=instruction_url or source_url
-    # v44: keep name provenance and price provenance independent.
+    # v45: keep name provenance and price provenance independent.
     if official.get("name_ko"): name_source="LEGO Korea 공식"
     elif instruction_name: name_source="LEGO Korea 조립설명서"
     elif verified.get("name_ko"): name_source=verified.get("source") or "검증 한국 카탈로그"
@@ -459,7 +459,7 @@ def _merge_kr_sources(number):
     diag={"official":usable(official),"instructions":bool(instruction_name),
           "kream":usable(kream),"brickmecha":usable(brick),"danawa":usable(danawa),
           "stored":bool(stored.get("name_ko") or stored.get("price_krw") is not None),
-          "verified":bool(verified),"validation":"brickset-ko-overlay-v44"}
+          "verified":bool(verified),"validation":"brickset-ko-overlay-v45"}
     return item,diag
 
 def _kr_catalog_fallback(number):
@@ -845,6 +845,41 @@ def sb_upsert(rows, diagnostic=False):
 
 def _valid_kr_name(name):
     return bool(name and re.search(r"[가-힣]",str(name)) and not _bad_page_text(str(name)))
+
+@app.get("/api/kr-name-diagnostic/<number>")
+def api_kr_name_diagnostic(number):
+    n=re.sub(r"[^0-9]","",str(number))
+    if not n:
+        return jsonify(ok=False,error="invalid set number"),400
+
+    urls=[
+      f"https://www.lego.com/ko-kr/service/building-instructions/{n}",
+      f"https://www.lego.com/ko-kr/service/building-instructions/search-results?searchString={n}"
+    ]
+    checks=[]
+    headers={"User-Agent":"Mozilla/5.0","Accept-Language":"ko-KR,ko;q=0.9,en;q=0.7"}
+    for url in urls:
+        try:
+            r=requests.get(url,headers=headers,timeout=12,allow_redirects=True)
+            text=r.text or ""
+            checks.append({
+              "url":url,"status":r.status_code,"final_url":r.url,
+              "bytes":len(r.content or b""),"set_number_found":n in text,
+              "korean_found":bool(re.search(r"[가-힣]{2,}",text)),
+              "blocked":any(x.lower() in text.lower() for x in ["access denied","blocked","captcha","robot"])
+            })
+        except Exception as e:
+            checks.append({"url":url,"error":type(e).__name__})
+    try:
+        extracted=_instruction_name(n)
+    except Exception as e:
+        extracted=None
+        extract_error=type(e).__name__
+    else:
+        extract_error=None
+    return jsonify(ok=True,number=n,checks=checks,extracted=extracted,
+                   extract_error=extract_error,validation="kr-name-diagnostic-v45")
+
 
 @app.post("/api/kr-cleanup")
 def kr_cleanup():
