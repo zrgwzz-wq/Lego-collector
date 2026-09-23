@@ -9,12 +9,12 @@ def api_kr_overlay(number):
     if not n:
         return jsonify(ok=False,error="invalid set number"),400
 
-    # v38.3: use exactly the same proven pipeline as /api/kr-lookup.
+    # v39: use exactly the same proven pipeline as /api/kr-lookup.
     item,diag=_merge_kr_sources(n)
     if not item:
         return jsonify(ok=False,number=n,name_ko=None,price=None,currency="KRW",
                        name_source=None,price_source=None,
-                       diagnostics=diag,validation="brickset-ko-overlay-v38.3")
+                       diagnostics=diag,validation="brickset-ko-overlay-v39")
 
     name=item.get("name_ko")
     price=item.get("price")
@@ -31,7 +31,7 @@ def api_kr_overlay(number):
     return jsonify(ok=True,number=n,name_ko=name,price=price,
                    currency=item.get("currency") or "KRW",
                    name_source=name_source,price_source=price_source,
-                   diagnostics=diag,validation="brickset-ko-overlay-v38.3")
+                   diagnostics=diag,validation="brickset-ko-overlay-v39")
 
 
 @app.get("/")
@@ -44,7 +44,7 @@ def health():
         cache_items=len(CACHE),
         kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0,
         supabase_configured=bool(os.environ.get("SUPABASE_URL","") and os.environ.get("SUPABASE_SERVICE_KEY","")),
-        version="v38.3"
+        version="v39"
     )
 @app.get("/api/search")
 def search():
@@ -343,7 +343,7 @@ def _merge_kr_sources(number):
     diag={"official":usable(official),"instructions":bool(instruction_name),
           "kream":usable(kream),"brickmecha":usable(brick),"danawa":usable(danawa),
           "stored":bool(stored.get("name_ko") or stored.get("price_krw") is not None),
-          "verified":bool(verified),"validation":"brickset-ko-overlay-v38.3"}
+          "verified":bool(verified),"validation":"brickset-ko-overlay-v39"}
     return item,diag
 
 def _kr_catalog_fallback(number):
@@ -435,7 +435,7 @@ def _lego_catalog_scan(target_number=None):
     return found.get(target) if target else found
 
 def _official_kr_lookup(number):
-    """v38.3: no Render-side LEGO.com crawling.
+    """v39: no Render-side LEGO.com crawling.
     Official Korean metadata comes only from verified repo/Supabase records.
     """
     return None
