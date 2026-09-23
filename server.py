@@ -14,14 +14,15 @@ def api_kr_overlay(number):
     if not item:
         return jsonify(ok=False,number=n,name_ko=None,price=None,currency="KRW",
                        name_source=None,price_source=None,
-                       diagnostics=diag,validation="brickset-ko-overlay-v43")
+                       diagnostics=diag,validation="brickset-ko-overlay-v44")
 
     name=item.get("name_ko")
     price=item.get("price")
     source=item.get("source")
     # Current DB schema has one source field; expose it conservatively.
-    name_source=source if name else None
-    price_source=source if price is not None else None
+    name_source=item.get("name_source") if name else None
+    price_source=item.get("price_source") if price is not None else None
+    price_type=item.get("price_type") if price is not None else None
 
     if sb_enabled():
         sb_upsert([{"set_number":n,"name_ko":name,"price_krw":price,
@@ -30,8 +31,8 @@ def api_kr_overlay(number):
 
     return jsonify(ok=True,number=n,name_ko=name,price=price,
                    currency=item.get("currency") or "KRW",
-                   name_source=name_source,price_source=price_source,
-                   diagnostics=diag,validation="brickset-ko-overlay-v43")
+                   name_source=name_source,price_source=price_source,price_type=price_type,
+                   diagnostics=diag,validation="brickset-ko-overlay-v44")
 
 
 @app.post("/api/kr-catalog-import")
@@ -118,7 +119,7 @@ def health():
         cache_items=len(CACHE),
         kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0,
         supabase_configured=bool(os.environ.get("SUPABASE_URL","") and os.environ.get("SUPABASE_SERVICE_KEY","")),
-        version="v43"
+        version="v44"
     )
 @app.get("/api/search")
 def search():
@@ -426,15 +427,39 @@ def _merge_kr_sources(number):
         else:
             source="LEGO Korea 조립설명서"
         source_url=instruction_url or source_url
+    # v44: keep name provenance and price provenance independent.
+    if official.get("name_ko"): name_source="LEGO Korea 공식"
+    elif instruction_name: name_source="LEGO Korea 조립설명서"
+    elif verified.get("name_ko"): name_source=verified.get("source") or "검증 한국 카탈로그"
+    elif brick.get("name_ko"): name_source=brick.get("source") or "국내 판매자료"
+    elif stored.get("name_ko"): name_source=stored.get("source")
+    else: name_source=None
+
+    if official.get("price") is not None:
+        price_source="LEGO Korea"; price_type="official_msrp"
+    elif verified.get("price") is not None:
+        price_source=verified.get("source") or "국내 판매자료"
+        price_type="official_msrp" if "LEGO Korea" in str(price_source) else "release_price"
+    elif kream.get("price") is not None:
+        price_source="KREAM"; price_type="release_price"
+    elif brick.get("price") is not None:
+        price_source=brick.get("source") or "국내 판매자료"; price_type="release_price"
+    elif stored.get("price_krw") is not None:
+        price_source=stored.get("source"); price_type="release_price"
+    else:
+        price_source=None; price_type=None
+
     item=None
     if name or price is not None:
         item={"name_ko":name,"price":price,"currency":"KRW","source":source,
-              "source_url":source_url,"checked_at":time.strftime("%Y-%m-%d")}
+              "source_url":source_url,"name_source":name_source,
+              "price_source":price_source,"price_type":price_type,
+              "checked_at":time.strftime("%Y-%m-%d")}
     def usable(x): return bool(x and (x.get("name_ko") or x.get("price") is not None))
     diag={"official":usable(official),"instructions":bool(instruction_name),
           "kream":usable(kream),"brickmecha":usable(brick),"danawa":usable(danawa),
           "stored":bool(stored.get("name_ko") or stored.get("price_krw") is not None),
-          "verified":bool(verified),"validation":"brickset-ko-overlay-v43"}
+          "verified":bool(verified),"validation":"brickset-ko-overlay-v44"}
     return item,diag
 
 def _kr_catalog_fallback(number):
