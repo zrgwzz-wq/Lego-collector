@@ -14,7 +14,7 @@ def api_kr_overlay(number):
     if not item:
         return jsonify(ok=False,number=n,name_ko=None,price=None,currency="KRW",
                        name_source=None,price_source=None,
-                       diagnostics=diag,validation="brickset-ko-overlay-v42")
+                       diagnostics=diag,validation="brickset-ko-overlay-v43")
 
     name=item.get("name_ko")
     price=item.get("price")
@@ -31,7 +31,7 @@ def api_kr_overlay(number):
     return jsonify(ok=True,number=n,name_ko=name,price=price,
                    currency=item.get("currency") or "KRW",
                    name_source=name_source,price_source=price_source,
-                   diagnostics=diag,validation="brickset-ko-overlay-v42")
+                   diagnostics=diag,validation="brickset-ko-overlay-v43")
 
 
 @app.post("/api/kr-catalog-import")
@@ -118,7 +118,7 @@ def health():
         cache_items=len(CACHE),
         kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0,
         supabase_configured=bool(os.environ.get("SUPABASE_URL","") and os.environ.get("SUPABASE_SERVICE_KEY","")),
-        version="v42"
+        version="v43"
     )
 @app.get("/api/search")
 def search():
@@ -434,7 +434,7 @@ def _merge_kr_sources(number):
     diag={"official":usable(official),"instructions":bool(instruction_name),
           "kream":usable(kream),"brickmecha":usable(brick),"danawa":usable(danawa),
           "stored":bool(stored.get("name_ko") or stored.get("price_krw") is not None),
-          "verified":bool(verified),"validation":"brickset-ko-overlay-v42"}
+          "verified":bool(verified),"validation":"brickset-ko-overlay-v43"}
     return item,diag
 
 def _kr_catalog_fallback(number):
