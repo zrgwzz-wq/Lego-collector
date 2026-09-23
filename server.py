@@ -14,7 +14,7 @@ def api_kr_overlay(number):
     if not item:
         return jsonify(ok=False,number=n,name_ko=None,price=None,currency="KRW",
                        name_source=None,price_source=None,
-                       diagnostics=diag,validation="brickset-ko-overlay-v40")
+                       diagnostics=diag,validation="brickset-ko-overlay-v41")
 
     name=item.get("name_ko")
     price=item.get("price")
@@ -31,7 +31,7 @@ def api_kr_overlay(number):
     return jsonify(ok=True,number=n,name_ko=name,price=price,
                    currency=item.get("currency") or "KRW",
                    name_source=name_source,price_source=price_source,
-                   diagnostics=diag,validation="brickset-ko-overlay-v40")
+                   diagnostics=diag,validation="brickset-ko-overlay-v41")
 
 
 @app.post("/api/kr-catalog-import")
@@ -66,6 +66,48 @@ def api_kr_catalog_import():
     return jsonify(ok=True,imported=len(clean),validation="kr-catalog-import-v40")
 
 
+@app.post("/api/kr-name-sync")
+def api_kr_name_sync():
+    """Resolve official Korean names from LEGO Korea building-instructions pages.
+    Successful names are cached in Supabase. Existing prices are preserved.
+    """
+    body=request.get_json(silent=True) or {}
+    numbers=body.get("numbers") or []
+    if isinstance(numbers,str):
+        numbers=[x.strip() for x in numbers.split(",") if x.strip()]
+    if not isinstance(numbers,list) or not numbers:
+        return jsonify(ok=False,error="numbers required"),400
+
+    clean=[]
+    for raw in numbers[:100]:
+        n=re.sub(r"[^0-9]","",str(raw))
+        if n and n not in clean: clean.append(n)
+    existing=sb_get(clean) if sb_enabled() else {}
+    results=[]; saved=0
+    for n in clean:
+        try:
+            name,url=_instruction_name(n)
+        except Exception:
+            name,url=None,None
+        if name and _valid_kr_name(name):
+            old=existing.get(n) or {}
+            old_price=old.get("price_krw")
+            old_source=(old.get("source") or "").strip()
+            source="LEGO Korea 조립설명서"
+            if old_price is not None and old_source and "LEGO Korea" not in old_source:
+                source=f"LEGO Korea 조립설명서 + {old_source} 가격"
+            row={"set_number":n,"name_ko":name,"price_krw":old_price,
+                 "source":source,"source_url":url or old.get("source_url"),
+                 "checked_at":time.strftime("%Y-%m-%d")}
+            did_save=bool(sb_enabled() and sb_upsert([row]))
+            saved += 1 if did_save else 0
+            results.append({"number":n,"name_ko":name,"saved":did_save,"source_url":url})
+        else:
+            results.append({"number":n,"name_ko":None,"saved":False})
+    return jsonify(ok=True,requested=len(clean),saved=saved,results=results,
+                   validation="lego-instruction-name-sync-v41")
+
+
 @app.get("/")
 def home(): return send_from_directory(".","index.html")
 @app.get("/api/health")
@@ -76,7 +118,7 @@ def health():
         cache_items=len(CACHE),
         kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0,
         supabase_configured=bool(os.environ.get("SUPABASE_URL","") and os.environ.get("SUPABASE_SERVICE_KEY","")),
-        version="v40"
+        version="v41"
     )
 @app.get("/api/search")
 def search():
@@ -375,7 +417,7 @@ def _merge_kr_sources(number):
     diag={"official":usable(official),"instructions":bool(instruction_name),
           "kream":usable(kream),"brickmecha":usable(brick),"danawa":usable(danawa),
           "stored":bool(stored.get("name_ko") or stored.get("price_krw") is not None),
-          "verified":bool(verified),"validation":"brickset-ko-overlay-v40"}
+          "verified":bool(verified),"validation":"brickset-ko-overlay-v41"}
     return item,diag
 
 def _kr_catalog_fallback(number):
