@@ -34,7 +34,7 @@ def api_kr_overlay(number):
     if not item:
         return jsonify(ok=False,number=n,name_ko=None,price=None,currency="KRW",
                        name_source=None,price_source=None,
-                       diagnostics=diag,validation="brickset-ko-overlay-v58")
+                       diagnostics=diag,validation="brickset-ko-overlay-v60")
 
     name=item.get("name_ko")
     price=item.get("price")
@@ -52,7 +52,7 @@ def api_kr_overlay(number):
     return jsonify(ok=True,number=n,name_ko=name,price=price,
                    currency=item.get("currency") or "KRW",
                    name_source=name_source,price_source=price_source,price_type=price_type,
-                   diagnostics=diag,validation="brickset-ko-overlay-v58")
+                   diagnostics=diag,validation="brickset-ko-overlay-v60")
 
 
 @app.post("/api/kr-catalog-import")
@@ -120,7 +120,7 @@ def api_kr_catalog_import():
             failed.append({"number":str(raw.get("number") or raw.get("set_number") or ""),
                            "error":str(e)})
     return jsonify(ok=(len(failed)==0),imported=len(imported),failed=len(failed),
-                   results=imported,errors=failed,validation="bulk-catalog-v58")
+                   results=imported,errors=failed,validation="bulk-catalog-v60")
 
 @app.post("/api/kr-name-sync")
 def api_kr_name_sync():
@@ -174,7 +174,7 @@ def health():
         cache_items=len(CACHE),
         kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0,
         supabase_configured=bool(os.environ.get("SUPABASE_URL","") and os.environ.get("SUPABASE_SERVICE_KEY","")),
-        version="v58"
+        version="v60"
     )
 @app.get("/api/search")
 def search():
@@ -260,7 +260,7 @@ def api_kr_name_search():
                     if n and n not in seen:
                         rows.append({"number":n,"name_ko":row.get("name_ko"),"source":row.get("source")}); seen.add(n)
         except Exception: pass
-    return jsonify(ok=True,results=rows[:20],validation="name-search-v58")
+    return jsonify(ok=True,results=rows[:20],validation="name-search-v60")
 
 @app.get("/api/kr-fast/<number>")
 def api_kr_fast(number):
@@ -298,7 +298,7 @@ def api_kr_fast(number):
     raw_price_source=(src_verified if verified.get("price") is not None
                       else src_stored if stored.get("price_krw") is not None else None)
 
-    # v58 precedence repair:
+    # v60 precedence repair:
     # A trusted repo/official catalog price is newer authority than stale Supabase provenance.
     # Never allow an old KREAM provenance row to relabel a verified official price.
     if verified.get("price") is not None:
@@ -326,7 +326,7 @@ def api_kr_fast(number):
         return jsonify(ok=True,number=n,name_ko=name,price=price,currency="KRW",
                        name_source=name_source,price_source=price_source,
                        price_type=resolved_type,cache_hit=True,
-                       validation="cache-first-v58")
+                       validation="cache-first-v60")
 
     # Cache miss: use existing enrichment once; it persists successful results to Supabase.
     item,diag=_merge_kr_sources(n)
@@ -334,17 +334,26 @@ def api_kr_fast(number):
         resolved_name_source=item.get("name_source") or name_source
         resolved_price_source=item.get("price_source")
         resolved_price_type=item.get("price_type")
+        # v60: every successful discovery becomes reusable catalog data.
+        # Only already-filtered/trusted metadata from _merge_kr_sources reaches this point.
+        if sb_enabled():
+            sb_upsert([{"set_number":n,
+                        "name_ko":item.get("name_ko") or name,
+                        "price_krw":item.get("price"),
+                        "source":item.get("source"),
+                        "source_url":item.get("source_url"),
+                        "checked_at":item.get("checked_at") or time.strftime("%Y-%m-%d")}])
         sb_provenance_put(n,resolved_name_source,resolved_price_source,resolved_price_type)
         return jsonify(ok=True,number=n,name_ko=item.get("name_ko") or name,
                        price=item.get("price"),currency="KRW",
                        name_source=resolved_name_source,
                        price_source=resolved_price_source,
                        price_type=resolved_price_type,cache_hit=False,
-                       diagnostics=diag,validation="cache-first-v58")
+                       diagnostics=diag,validation="cache-first-v60")
 
     return jsonify(ok=True,number=n,name_ko=name,price=None,currency="KRW",
                    name_source=name_source,price_source=None,price_type=None,
-                   cache_hit=False,validation="cache-first-v58")
+                   cache_hit=False,validation="cache-first-v60")
 
 @app.get("/api/kr-catalog")
 def kr_catalog():
@@ -615,7 +624,7 @@ def _merge_kr_sources(number):
         else:
             source="LEGO Korea 조립설명서"
         source_url=instruction_url or source_url
-    # v58: keep name provenance and price provenance independent.
+    # v60: keep name provenance and price provenance independent.
     if official.get("name_ko"): name_source="LEGO Korea 공식"
     elif instruction_name: name_source="LEGO Korea 조립설명서"
     elif verified.get("name_ko"): name_source=verified.get("source") or "검증 한국 카탈로그"
@@ -647,7 +656,7 @@ def _merge_kr_sources(number):
     diag={"official":usable(official),"instructions":bool(instruction_name),
           "kream":usable(kream),"brickmecha":usable(brick),"danawa":usable(danawa),
           "stored":bool(stored.get("name_ko") or stored.get("price_krw") is not None),
-          "verified":bool(verified),"validation":"brickset-ko-overlay-v58"}
+          "verified":bool(verified),"validation":"brickset-ko-overlay-v60"}
     return item,diag
 
 def _kr_catalog_fallback(number):
@@ -938,7 +947,7 @@ def _clean_lego_title(s, number):
     return s if 1 < len(s) < 120 else None
 
 def _instruction_name(number):
-    """v58: Render->LEGO is HTTP 403. Use the verified indexed KR catalog instead."""
+    """v60: Render->LEGO is HTTP 403. Use the verified indexed KR catalog instead."""
     n=str(number).strip().split("-")[0]
     row=KR_CATALOG.get(n) if "KR_CATALOG" in globals() else None
     if row and row.get("name_ko"):
@@ -1034,7 +1043,7 @@ def api_kr_name_diagnostic(number):
     else:
         extract_error=None
     return jsonify(ok=True,number=n,checks=checks,extracted=extracted,
-                   extract_error=extract_error,validation="kr-name-diagnostic-v58")
+                   extract_error=extract_error,validation="kr-name-diagnostic-v60")
 
 
 @app.post("/api/kr-cleanup")
@@ -1133,4 +1142,34 @@ def persistent_catalog_sync():
                    new_items=len(to_save),verified_count=len(verified),
                    total_available=len(set(verified)|set(stored)|set(k for k,v in out.items() if v)),
                    supabase={"read":read_diag,"write":write_diag})
+
+
+_V60_SEEDED=False
+def _v60_seed_official_catalog():
+    global _V60_SEEDED
+    if _V60_SEEDED or not sb_enabled():
+        return
+    _V60_SEEDED=True
+    try:
+        batch=[]
+        for n,row in load_kr_catalog().items():
+            src=str((row or {}).get("source") or "")
+            if "LEGO Korea 공식" not in src:
+                continue
+            batch.append({"set_number":str(n),
+                          "name_ko":row.get("name_ko"),
+                          "price_krw":row.get("price"),
+                          "source":"LEGO Korea 공식",
+                          "source_url":row.get("source_url"),
+                          "checked_at":row.get("checked_at") or time.strftime("%Y-%m-%d")})
+        if batch:
+            sb_upsert(batch)
+            for r in batch:
+                sb_provenance_put(r["set_number"],"LEGO Korea","LEGO Korea","official_msrp")
+    except Exception:
+        pass
+
+@app.before_request
+def _v60_bootstrap_catalog():
+    _v60_seed_official_catalog()
 
