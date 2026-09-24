@@ -192,5 +192,61 @@
     "source": "LEGO Korea 공식",
     "source_url": "https://www.lego.com/ko-kr/product/leonardo-da-vincis-flying-machine-10363",
     "checked_at": "2026-09-24"
+  },
+  "10329": {
+    "name_ko": "미니어처 식물들",
+    "price": 69900,
+    "currency": "KRW",
+    "source": "LEGO Korea 공식",
+    "source_url": "https://www.lego.com/ko-kr/product/tiny-plants-10329",
+    "checked_at": "2026-09-24"
+  },
+  "10341": {
+    "name_ko": "NASA 아르테미스 우주 발사 시스템",
+    "price": 349900,
+    "currency": "KRW",
+    "source": "LEGO Korea 공식",
+    "source_url": "https://www.lego.com/ko-kr/product/nasa-artemis-space-launch-system-10341",
+    "checked_at": "2026-09-24"
+  },
+  "10345": {
+    "name_ko": "꽃꽂이",
+    "price": 159900,
+    "currency": "KRW",
+    "source": "LEGO Korea 공식",
+    "source_url": "https://www.lego.com/ko-kr/product/flower-arrangement-10345",
+    "checked_at": "2026-09-24"
+  },
+  "10347": {
+    "name_ko": "쁘띠 부케",
+    "price": 44900,
+    "currency": "KRW",
+    "source": "LEGO Korea 공식",
+    "source_url": "https://www.lego.com/ko-kr/product/petite-sunny-bouquet-10347",
+    "checked_at": "2026-09-24"
+  },
+  "10350": {
+    "name_ko": "튜더 코너",
+    "price": 309900,
+    "currency": "KRW",
+    "source": "LEGO Korea 공식",
+    "source_url": "https://www.lego.com/ko-kr/product/tudor-corner-10350",
+    "checked_at": "2026-09-24"
+  },
+  "10354": {
+    "name_ko": "반지의 제왕: 샤이어™",
+    "price": 369900,
+    "currency": "KRW",
+    "source": "LEGO Korea 공식",
+    "source_url": "https://www.lego.com/ko-kr/product/the-lord-of-the-rings-the-shire-10354",
+    "checked_at": "2026-09-24"
+  },
+  "10359": {
+    "name_ko": "파운틴 가든",
+    "price": 149900,
+    "currency": "KRW",
+    "source": "LEGO Korea 공식",
+    "source_url": "https://www.lego.com/ko-kr/product/fountain-garden-10359",
+    "checked_at": "2026-09-24"
   }
 }
