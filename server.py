@@ -35,7 +35,7 @@ def api_kr_overlay(number):
     if not item:
         return jsonify(ok=False,number=n,name_ko=None,price=None,currency="KRW",
                        name_source=None,price_source=None,
-                       diagnostics=diag,validation="brickset-ko-overlay-v73")
+                       diagnostics=diag,validation="brickset-ko-overlay-v74")
 
     name=item.get("name_ko")
     price=item.get("price")
@@ -53,7 +53,7 @@ def api_kr_overlay(number):
     return jsonify(ok=True,number=n,name_ko=name,price=price,
                    currency=item.get("currency") or "KRW",
                    name_source=name_source,price_source=price_source,price_type=price_type,
-                   diagnostics=diag,validation="brickset-ko-overlay-v73")
+                   diagnostics=diag,validation="brickset-ko-overlay-v74")
 
 
 @app.post("/api/kr-catalog-import")
@@ -121,7 +121,7 @@ def api_kr_catalog_import():
             failed.append({"number":str(raw.get("number") or raw.get("set_number") or ""),
                            "error":str(e)})
     return jsonify(ok=(len(failed)==0),imported=len(imported),failed=len(failed),
-                   results=imported,errors=failed,validation="bulk-catalog-v73")
+                   results=imported,errors=failed,validation="bulk-catalog-v74")
 
 @app.post("/api/kr-name-sync")
 def api_kr_name_sync():
@@ -175,7 +175,7 @@ def health():
         cache_items=len(CACHE),
         kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0,
         supabase_configured=bool(os.environ.get("SUPABASE_URL","") and os.environ.get("SUPABASE_SERVICE_KEY","")),
-        version="v73"
+        version="v74"
     )
 @app.get("/api/search")
 def search():
@@ -186,7 +186,7 @@ def search():
     p={"apiKey":KEY,"userHash":"","params":json.dumps({"query":q,"pageSize":20,"extendedData":1})}
     r=requests.get(API+"/getSets",params=p,timeout=20);r.raise_for_status()
     d=r.json()
-    # v73: when the user enters an exact set number, keep that set as the
+    # v74: when the user enters an exact set number, keep that set as the
     # primary result and classify only evidence-backed extra hits as relations.
     exact_num=re.sub(r"[^0-9]","",q)
     if exact_num and q.replace("-1","").isdigit():
@@ -322,7 +322,7 @@ def api_kr_name_search():
                     if n and n not in seen:
                         rows.append({"number":n,"name_ko":row.get("name_ko"),"source":row.get("source")}); seen.add(n)
         except Exception: pass
-    return jsonify(ok=True,results=rows[:20],validation="name-search-v73")
+    return jsonify(ok=True,results=rows[:20],validation="name-search-v74")
 
 @app.get("/api/kr-fast/<number>")
 def api_kr_fast(number):
@@ -360,7 +360,7 @@ def api_kr_fast(number):
     raw_price_source=(src_verified if verified.get("price") is not None
                       else src_stored if stored.get("price_krw") is not None else None)
 
-    # v73 precedence repair:
+    # v74 precedence repair:
     # A trusted repo/official catalog price is newer authority than stale Supabase provenance.
     # Never allow an old KREAM provenance row to relabel a verified official price.
     if verified.get("price") is not None:
@@ -388,7 +388,7 @@ def api_kr_fast(number):
         return jsonify(ok=True,number=n,name_ko=name,price=price,currency="KRW",
                        name_source=name_source,price_source=price_source,
                        price_type=resolved_type,cache_hit=True,
-                       validation="cache-first-v73")
+                       validation="cache-first-v74")
 
     # Cache miss: use existing enrichment once; it persists successful results to Supabase.
     item,diag=_merge_kr_sources(n)
@@ -396,7 +396,7 @@ def api_kr_fast(number):
         resolved_name_source=item.get("name_source") or name_source
         resolved_price_source=item.get("price_source")
         resolved_price_type=item.get("price_type")
-        # v73: every successful discovery becomes reusable catalog data.
+        # v74: every successful discovery becomes reusable catalog data.
         # Only already-filtered/trusted metadata from _merge_kr_sources reaches this point.
         if sb_enabled():
             sb_upsert([{"set_number":n,
@@ -411,11 +411,11 @@ def api_kr_fast(number):
                        name_source=resolved_name_source,
                        price_source=resolved_price_source,
                        price_type=resolved_price_type,cache_hit=False,
-                       diagnostics=diag,validation="cache-first-v73")
+                       diagnostics=diag,validation="cache-first-v74")
 
     return jsonify(ok=True,number=n,name_ko=name,price=None,currency="KRW",
                    name_source=name_source,price_source=None,price_type=None,
-                   cache_hit=False,validation="cache-first-v73")
+                   cache_hit=False,validation="cache-first-v74")
 
 @app.get("/api/kr-catalog")
 def kr_catalog():
@@ -467,7 +467,7 @@ def auto_sync():
         except Exception as e:
             return n,None,type(e).__name__
 
-    # v73: parallel requests prevent N owned sets from turning into an N*timeout request.
+    # v74: parallel requests prevent N owned sets from turning into an N*timeout request.
     targets=nums[:100]
     if targets:
         with ThreadPoolExecutor(max_workers=min(6,len(targets))) as ex:
@@ -618,23 +618,24 @@ def _kream_kr_lookup(number):
     return None
 
 
+KREAM_MODEL_ALIASES={
+    # LEGO set/catalog number -> Korean retail/model number used by KREAM.
+    # 5009609 is the LEGO set number; 6601584 is the KR alternate item/model number.
+    "5009609":["6601584"],
+}
+
 def _kream_recent_trade_lookup(number):
-    """Strict KREAM completed-trade parser.
-    v73 deliberately ignores generic numeric JSON fields because v72 could
-    mistake unrelated counters/IDs for a price.
-    """
+    """Strict KREAM completed-trade parser with alternate model-number support."""
     n=str(number).strip().split("-")[0]
-    search=f"https://kream.co.kr/search?keyword={n}"
+    candidates=[n]+[x for x in KREAM_MODEL_ALIASES.get(n,[]) if x!=n]
     headers={
         "User-Agent":"Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/143 Mobile Safari/537.36",
         "Accept-Language":"ko-KR,ko;q=0.9"
     }
 
     def valid_trade_price(price):
-        # Basic KRW sanity check.
         if price is None or price < 5000 or price > 10000000:
             return False
-        # If we know a Korean release/MSRP, reject wildly implausible parses.
         try:
             row=(load_kr_catalog().get(n) or {})
             ref=_safe_price(row.get("price"))
@@ -644,60 +645,61 @@ def _kream_recent_trade_lookup(number):
             pass
         return True
 
-    try:
-        r=requests.get(search,headers=headers,timeout=10)
-        if not r.ok or _bad_page_text(r.text[:5000]):
-            return None
-        links=_extract_detail_links(r.text,r.url,n,"kream.co.kr")
-
-        for u in links[:5]:
-            try:
-                d=requests.get(u,headers=headers,timeout=10)
-                if not d.ok:
-                    continue
-                text=_decode_jsonish(d.text or "")
-
-                # Require the exact LEGO model number on the product detail page.
-                if not re.search(rf"(?<!\d){re.escape(n)}(?!\d)",text):
-                    continue
-
-                # Convert only visible-ish text. We intentionally do NOT use generic
-                # fields such as lastSalePrice/lastTradePrice anymore.
-                plain=re.sub(r"<[^>]+>"," ",text)
-                plain=re.sub(r"&nbsp;"," ",plain,flags=re.I)
-                plain=re.sub(r"\s+"," ",plain)
-
-                price=None
-                # KREAM's completed-trades section is headed "체결 거래".
-                # The first formatted KRW amount after the 거래가 header is the
-                # latest visible completed trade.
-                for m in re.finditer("체결 거래",plain):
-                    area=plain[m.start():m.start()+4500]
-                    if "거래가" not in area[:900]:
-                        continue
-                    pm=re.search(r"([1-9][0-9]{0,2}(?:,[0-9]{3})+)\s*원",area)
-                    if not pm:
-                        continue
-                    candidate=int(pm.group(1).replace(",",""))
-                    if valid_trade_price(candidate):
-                        price=candidate
-                        break
-
-                if price is not None:
-                    return {
-                        "number":n,
-                        "price":price,
-                        "currency":"KRW",
-                        "price_type":"recent_trade",
-                        "source":"KREAM 최근 체결가",
-                        "source_url":d.url,
-                        "checked_at":time.strftime("%Y-%m-%d"),
-                        "validation":"completed-trades-visible-row-v73"
-                    }
-            except Exception:
+    for query_number in candidates:
+        search=f"https://kream.co.kr/search?keyword={query_number}"
+        try:
+            r=requests.get(search,headers=headers,timeout=10)
+            if not r.ok or _bad_page_text(r.text[:5000]):
                 continue
-    except Exception:
-        pass
+            links=_extract_detail_links(r.text,r.url,query_number,"kream.co.kr")
+
+            for u in links[:5]:
+                try:
+                    d=requests.get(u,headers=headers,timeout=10)
+                    if not d.ok:
+                        continue
+                    text=_decode_jsonish(d.text or "")
+
+                    # The detail page must contain either the canonical LEGO set number
+                    # or the accepted KREAM/retail alternate model number used to find it.
+                    accepted=[n]+KREAM_MODEL_ALIASES.get(n,[])
+                    matched=next((x for x in accepted if re.search(rf"(?<!\d){re.escape(x)}(?!\d)",text)),None)
+                    if not matched:
+                        continue
+
+                    plain=re.sub(r"<[^>]+>"," ",text)
+                    plain=re.sub(r"&nbsp;"," ",plain,flags=re.I)
+                    plain=re.sub(r"\s+"," ",plain)
+
+                    price=None
+                    for m in re.finditer("체결 거래",plain):
+                        area=plain[m.start():m.start()+4500]
+                        if "거래가" not in area[:900]:
+                            continue
+                        pm=re.search(r"([1-9][0-9]{0,2}(?:,[0-9]{3})+)\s*원",area)
+                        if not pm:
+                            continue
+                        candidate=int(pm.group(1).replace(",",""))
+                        if valid_trade_price(candidate):
+                            price=candidate
+                            break
+
+                    if price is not None:
+                        return {
+                            "number":n,
+                            "model_number":matched,
+                            "price":price,
+                            "currency":"KRW",
+                            "price_type":"recent_trade",
+                            "source":"KREAM 최근 체결가",
+                            "source_url":d.url,
+                            "checked_at":time.strftime("%Y-%m-%d"),
+                            "validation":"completed-trades-visible-row-v74"
+                        }
+                except Exception:
+                    continue
+        except Exception:
+            continue
     return None
 
 @app.post("/api/kream-market-batch")
@@ -724,7 +726,7 @@ def api_kream_market_batch():
                 else: failed.append(n)
     return jsonify(ok=True,items=items,failed=failed,
                    requested=len(nums),updated=len(items),
-                   validation="kream-recent-trade-v73")
+                   validation="kream-recent-trade-v74")
 
 def _danawa_kr_lookup(number):
     """v33: Danawa is not trusted as a Korean-name source.
@@ -813,7 +815,7 @@ def _merge_kr_sources(number):
         else:
             source="LEGO Korea 조립설명서"
         source_url=instruction_url or source_url
-    # v73: keep name provenance and price provenance independent.
+    # v74: keep name provenance and price provenance independent.
     if official.get("name_ko"): name_source="LEGO Korea 공식"
     elif instruction_name: name_source="LEGO Korea 조립설명서"
     elif verified.get("name_ko"): name_source=verified.get("source") or "검증 한국 카탈로그"
@@ -845,7 +847,7 @@ def _merge_kr_sources(number):
     diag={"official":usable(official),"instructions":bool(instruction_name),
           "kream":usable(kream),"brickmecha":usable(brick),"danawa":usable(danawa),
           "stored":bool(stored.get("name_ko") or stored.get("price_krw") is not None),
-          "verified":bool(verified),"validation":"brickset-ko-overlay-v73"}
+          "verified":bool(verified),"validation":"brickset-ko-overlay-v74"}
     return item,diag
 
 def _kr_catalog_fallback(number):
@@ -1136,7 +1138,7 @@ def _clean_lego_title(s, number):
     return s if 1 < len(s) < 120 else None
 
 def _instruction_name(number):
-    """v73: Render->LEGO is HTTP 403. Use the verified indexed KR catalog instead."""
+    """v74: Render->LEGO is HTTP 403. Use the verified indexed KR catalog instead."""
     n=str(number).strip().split("-")[0]
     row=KR_CATALOG.get(n) if "KR_CATALOG" in globals() else None
     if row and row.get("name_ko"):
@@ -1232,7 +1234,7 @@ def api_kr_name_diagnostic(number):
     else:
         extract_error=None
     return jsonify(ok=True,number=n,checks=checks,extracted=extracted,
-                   extract_error=extract_error,validation="kr-name-diagnostic-v73")
+                   extract_error=extract_error,validation="kr-name-diagnostic-v74")
 
 
 @app.post("/api/kr-cleanup")
@@ -1349,7 +1351,7 @@ def relation_put(primary_number, related_number, relation_type, source="Brickset
         return False
 
 _V60_SEEDED=False
-def _v73_seed_official_catalog():
+def _v74_seed_official_catalog():
     global _V60_SEEDED
     if _V60_SEEDED or not sb_enabled():
         return
@@ -1374,8 +1376,8 @@ def _v73_seed_official_catalog():
         pass
 
 @app.before_request
-def _v73_bootstrap_catalog():
-    _v73_seed_official_catalog()
+def _v74_bootstrap_catalog():
+    _v74_seed_official_catalog()
 
 
 @app.get("/api/relations/<number>")
