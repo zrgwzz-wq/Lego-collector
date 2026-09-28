@@ -1,4 +1,4 @@
-<!doctype html><html lang=ko><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>LEGO Collector v80</title><style>
+<!doctype html><html lang=ko><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>LEGO Collector v81</title><style>
 *{box-sizing:border-box}body{margin:0;background:#0d0d0f;color:#f5f5f5;font-family:system-ui,-apple-system,sans-serif}header{position:sticky;top:0;background:#171719;border-bottom:1px solid #2b2b30;padding:14px;z-index:3}main{max-width:880px;margin:auto;padding:12px 12px 90px}.brand{font-size:23px;font-weight:900}.sub,.muted{font-size:12px;color:#999}.page{display:none}.page.on{display:block}.card{background:#1c1c20;border:1px solid #303037;border-radius:17px;padding:14px;margin:9px 0}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.stat b{font-size:19px;display:block}.search{display:flex;gap:7px}.search input{flex:1}input,select,button{padding:10px;border-radius:10px;border:1px solid #444;background:#29292f;color:white;max-width:100%}button{background:#e3000b;font-weight:800}.product{display:grid;grid-template-columns:95px 1fr;gap:11px}.product img{width:95px;height:95px;object-fit:contain;background:white;border-radius:11px}.unit{border-top:1px solid #36363c;margin-top:12px;padding-top:10px}.field{margin:5px 0}.field label{display:block;font-size:11px;color:#999}.field input,.field select{width:100%}.badge{font-size:10px;background:#393940;border-radius:20px;padding:4px 7px;display:inline-block;margin:3px}.nav{position:fixed;bottom:0;left:0;right:0;display:grid;grid-template-columns:repeat(5,1fr);background:#1b1b1f;border-top:1px solid #333;z-index:5}.nav button{border:0;background:none;color:#999;padding:10px 2px}.nav button.on{color:#fff}.positive{color:#6ed785}.negative{color:#ff7474}.source{border-left:3px solid #777;padding-left:9px;margin:8px 0}.choice{display:flex;gap:5px;flex-wrap:wrap}.choice button{background:#34343a}.choice button.on{background:#e3000b}.empty{text-align:center;color:#777;padding:25px}
 .collection-toolbar{display:flex;align-items:stretch;gap:10px;flex-direction:column;margin:0 0 16px}
 .collection-view-choice{flex-wrap:nowrap}
@@ -93,8 +93,8 @@
  .wishlist-target .wide{grid-column:auto}
 }
 </style><script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script></head><body>
-<header><div class=brand>🧱 LEGO Collector <span style="color:#e3000b">v80</span></div><div id=status class=sub>서버 확인 중…</div><div id=catalogStatus class=sub></div><div id=syncStatus class=sub>⏳ 영구 카탈로그 동기화 준비 중…</div></header><main>
-<section id=dash class="page on"><h2>대시보드</h2><div class=grid><div class="card stat">보유수량<b id=cnt>0개</b></div><div class="card stat">보유 정가<b id=listVal>₩0</b></div><div class="card stat">보유 구매가<b id=buy>₩0</b></div><div class="card stat">평가금액<b id=val>₩0</b></div><div class="card stat">미실현손익<b id=pl>₩0</b></div><div class="card stat">판매완료<b id=soldCnt>0개</b></div><div class="card stat">실현손익<b id=realPL>₩0</b></div></div><div class=card><b>v80</b><div class=muted>앱 실행 시 Brickset과 한국 LEGO 데이터를 자동 확인합니다. 단종 세트의 한글명은 LEGO Korea 조립설명서에서도 찾고, Supabase가 연결되어 있으면 새로 찾은 정보를 영구 저장해 다음부터 즉시 재사용합니다.</div><button onclick=updateAllKr()>🇰🇷 한국 카탈로그 다시 적용</button>
+<header><div class=brand>🧱 LEGO Collector <span style="color:#e3000b">v81</span></div><div id=status class=sub>서버 확인 중…</div><div id=catalogStatus class=sub></div><div id=syncStatus class=sub>⏳ 영구 카탈로그 동기화 준비 중…</div></header><main>
+<section id=dash class="page on"><h2>대시보드</h2><div class=grid><div class="card stat">보유수량<b id=cnt>0개</b></div><div class="card stat">보유 정가<b id=listVal>₩0</b></div><div class="card stat">보유 구매가<b id=buy>₩0</b></div><div class="card stat">평가금액<b id=val>₩0</b></div><div class="card stat">미실현손익<b id=pl>₩0</b></div><div class="card stat">판매완료<b id=soldCnt>0개</b></div><div class="card stat">실현손익<b id=realPL>₩0</b></div></div><div class=card><b>v81</b><div class=muted>앱 실행 시 Brickset과 한국 LEGO 데이터를 자동 확인합니다. 단종 세트의 한글명은 LEGO Korea 조립설명서에서도 찾고, Supabase가 연결되어 있으면 새로 찾은 정보를 영구 저장해 다음부터 즉시 재사용합니다.</div><button onclick=updateAllKr()>🇰🇷 한국 카탈로그 다시 적용</button>
 <button onclick=usage()>Brickset API 사용량 확인</button><div id=krUpdateBox class=muted></div><div id=usageBox class=muted></div></div></section>
 <section id=search class=page><h2>검색</h2><div class=search><input id=q placeholder="세트번호 또는 제품명" enterkeyhint="search" inputmode="search"><button onclick=go()>검색</button></div><div id=res></div></section>
 <section id=collection class=page><h2>소장목록</h2>
@@ -162,7 +162,7 @@
 </div>
 <div id=wishlistList></div>
 </section>
-<section id=prices class=page><h2>가격관리</h2><div class=card><b>국내 가격 · v80</b><div class=muted>LEGO Korea 공홈에 현재 등록된 제품은 공식 한글명·원화 가격을 최우선으로 자동 동기화합니다. 공홈에서 찾지 못한 단종 제품만 검증 카탈로그/한국 발매가를 보조로 사용합니다.</div></div><div id=priceList></div></section>
+<section id=prices class=page><h2>가격관리</h2><div class=card><b>국내 가격 · v81</b><div class=muted>LEGO Korea 공홈에 현재 등록된 제품은 공식 한글명·원화 가격을 최우선으로 자동 동기화합니다. 공홈에서 찾지 못한 단종 제품만 검증 카탈로그/한국 발매가를 보조로 사용합니다.</div></div><div id=priceList></div></section>
 
 </main>
 <button id=scrollTopBtn class=scroll-top-btn type=button aria-label="맨 위로 이동" onclick="scrollToTop()">↑</button>
@@ -198,7 +198,7 @@ function addWishlistEncoded(payload){
   }
 }
 
-let db=JSON.parse(localStorage.getItem("legov80")||localStorage.getItem("legov79")||localStorage.getItem("legov78")||localStorage.getItem("legov77")||localStorage.getItem("legov76")||localStorage.getItem("legov75")||localStorage.getItem("legov74")||localStorage.getItem("legov73")||localStorage.getItem("legov72")||localStorage.getItem("legov71")||localStorage.getItem("legov70")||localStorage.getItem("legov23.2")||localStorage.getItem("legov22")||localStorage.getItem("legov21")||localStorage.getItem("legov20")||localStorage.getItem("legov19")||localStorage.getItem("legov18")||localStorage.getItem("legov17")||localStorage.getItem("legov16")||localStorage.getItem("legov15")||localStorage.getItem("legov14")||localStorage.getItem("legov13")||localStorage.getItem("legov12")||localStorage.getItem("legov11")||localStorage.getItem("legov10")||localStorage.getItem("legov9")||localStorage.getItem("legov8")||"{}"),won=n=>"₩"+Math.round(+n||0).toLocaleString("ko-KR"),today=()=>new Date().toISOString().slice(0,10);
+let db=JSON.parse(localStorage.getItem("legov81")||localStorage.getItem("legov80")||localStorage.getItem("legov79")||localStorage.getItem("legov78")||localStorage.getItem("legov77")||localStorage.getItem("legov76")||localStorage.getItem("legov75")||localStorage.getItem("legov74")||localStorage.getItem("legov73")||localStorage.getItem("legov72")||localStorage.getItem("legov71")||localStorage.getItem("legov70")||localStorage.getItem("legov23.2")||localStorage.getItem("legov22")||localStorage.getItem("legov21")||localStorage.getItem("legov20")||localStorage.getItem("legov19")||localStorage.getItem("legov18")||localStorage.getItem("legov17")||localStorage.getItem("legov16")||localStorage.getItem("legov15")||localStorage.getItem("legov14")||localStorage.getItem("legov13")||localStorage.getItem("legov12")||localStorage.getItem("legov11")||localStorage.getItem("legov10")||localStorage.getItem("legov9")||localStorage.getItem("legov8")||"{}"),won=n=>"₩"+Math.round(+n||0).toLocaleString("ko-KR"),today=()=>new Date().toISOString().slice(0,10);
 
 let wishlist={};
 try{wishlist=JSON.parse(localStorage.getItem("legoWishlist")||"{}")||{}}catch(e){wishlist={}}
@@ -265,7 +265,7 @@ Object.entries(db).forEach(([n,x])=>{
        }
      }
    }
-   if(changed)localStorage.setItem("legov80",JSON.stringify(db));
+   if(changed)localStorage.setItem("legov81",JSON.stringify(db));
  }catch(e){}
 })();
 function retail(s){let L=s.LEGOCom||{};for(let c of ["US","UK","CA","DE"])if(L[c]?.retailPrice)return {price:L[c].retailPrice,currency:c=="US"?"USD":c,region:c};return null}
@@ -283,7 +283,8 @@ async function go(){
      else{
       // Multiple Korean-name matches: render a lightweight chooser without doing
       // Brickset/KREAM calls for every candidate. Selecting one reuses the proven pipeline.
-      res.innerHTML=ks.results.map(x=>`<div class="card kr-pick" data-number="${x.number}" style="cursor:pointer">
+      const bridge=ks.translated_query?`<div class="muted" style="margin:0 0 8px">자동 영문 연결: ${ks.translated_query}</div>`:"";
+      res.innerHTML=bridge+ks.results.map(x=>`<div class="card kr-pick" data-number="${x.number}" style="cursor:pointer">
         <div><b>${x.number} ${x.name_ko||x.name_en||""}</b></div>
         ${x.name_ko&&x.name_en?`<div class="muted">${x.name_en}</div>`:""}
         <div class="muted">${x.source?`연결 출처: ${x.source} · `:""}선택해서 상세정보 보기</div>
@@ -327,7 +328,7 @@ async function go(){
      ?`<div class="muted">한글 제품명 출처: ${kr.name_source}</div>`:"";
    return `<div class="card product"><img src="${img}"><div><b>${s.number} ${title}</b>${nameKo&&s.name!=nameKo?`<div class=muted>${s.name}</div>`:""}${nameSourceHtml}<div class=muted>${s.year||""} · ${s.theme||""} · ${s.pieces||0} pcs ${d.cached?"· 캐시":""}</div>${priceHtml}<div class=search-actions><button type="button" onclick='addOwnedEncoded("${btoa(unescape(encodeURIComponent(JSON.stringify(o))))}")'>소장 등록</button><button type="button" class=secondary onclick='addWishlistEncoded("${btoa(unescape(encodeURIComponent(JSON.stringify(o))))}")'>♡ 관심 등록</button></div></div></div>`;
   }));
-  localStorage.setItem("legov80",JSON.stringify(db));draw();
+  localStorage.setItem("legov81",JSON.stringify(db));draw();
   const exact=String(searchValue).replace(/\D/g,"");
   if(exact && d.primary_number){
     const primary=[], related=[];
@@ -392,7 +393,7 @@ function setKoName(n,v){db[n].set.nameKo=(v||"").trim();db[n].set.nameKoDate=tod
 function mkt(n,k,v){db[n].market[k]=["krMsrp","kream","shop"].includes(k)?(+v||0):v;if(k=="krMsrp"&&!db[n].market.krMsrpDate)db[n].market.krMsrpDate=today();if(k=="kream"&&!db[n].market.kreamDate)db[n].market.kreamDate=today();if(k=="shop"&&!db[n].market.shopDate)db[n].market.shopDate=today();save()}
 function setMode(n,m){db[n].market.mode=m;apply(n);save()}
 function apply(n){let x=db[n],m=x.market,p=m.mode=="kream"?+m.kream:m.mode=="shop"?+m.shop:0;if(m.mode!="manual"&&p)x.u.filter(u=>!u.sold).forEach(u=>u.value=p)}
-function save(redraw=true){localStorage.setItem("legov80",JSON.stringify(db));if(redraw)draw()}
+function save(redraw=true){localStorage.setItem("legov81",JSON.stringify(db));if(redraw)draw()}
 function del(n,i){db[n].u.splice(i,1);if(!db[n].u.length&&confirm("세트 정보도 삭제할까요?"))delete db[n];save()}
 async function usage(){try{let d=await fetch("/api/usage").then(r=>r.json());usageBox.textContent="최근 사용량: "+JSON.stringify(d)}catch(e){usageBox.textContent="사용량 조회 실패"}}
 
@@ -638,7 +639,7 @@ async function previewCollectionImport(ev){
   }
   pendingCollectionImport={rows,fileName:file.name};
   box.innerHTML=`<b>${escHtml(file.name)}</b><div class=muted>일치 ${matched}행 · 변경 예상 ${changed}행${ignored?` · 미일치 ${ignored}행`:""}</div><div class=preview-lines>${samples.length?samples.map(escHtml).join('<br>'):'변경사항이 없거나 값이 동일합니다.'}</div><div class=import-actions><button type=button onclick="applyCollectionImport()">변경 적용</button><button type=button class=secondary onclick="cancelCollectionImport()">취소</button></div>`;
- }catch(e){pendingCollectionImport=null;box.innerHTML='<b>파일을 읽지 못했습니다.</b><div class=muted>v80에서 내보낸 Excel/CSV 형식을 사용해 주세요.</div>'}
+ }catch(e){pendingCollectionImport=null;box.innerHTML='<b>파일을 읽지 못했습니다.</b><div class=muted>v81에서 내보낸 Excel/CSV 형식을 사용해 주세요.</div>'}
 }
 function applyCollectionImport(){
  if(!pendingCollectionImport)return;let applied=0,ignored=0;
