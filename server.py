@@ -1,4 +1,4 @@
-import os, time,json,time,requests,re
+import os, time,json,time,requests,re,html as html_lib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Flask,request,jsonify,send_from_directory
 app=Flask(__name__); KEY=os.environ.get("BRICKSET_API_KEY","")
@@ -35,7 +35,7 @@ def api_kr_overlay(number):
     if not item:
         return jsonify(ok=False,number=n,name_ko=None,price=None,currency="KRW",
                        name_source=None,price_source=None,
-                       diagnostics=diag,validation="brickset-ko-overlay-v78")
+                       diagnostics=diag,validation="brickset-ko-overlay-v80")
 
     name=item.get("name_ko")
     price=item.get("price")
@@ -53,7 +53,7 @@ def api_kr_overlay(number):
     return jsonify(ok=True,number=n,name_ko=name,price=price,
                    currency=item.get("currency") or "KRW",
                    name_source=name_source,price_source=price_source,price_type=price_type,
-                   diagnostics=diag,validation="brickset-ko-overlay-v78")
+                   diagnostics=diag,validation="brickset-ko-overlay-v80")
 
 
 @app.post("/api/kr-catalog-import")
@@ -121,7 +121,7 @@ def api_kr_catalog_import():
             failed.append({"number":str(raw.get("number") or raw.get("set_number") or ""),
                            "error":str(e)})
     return jsonify(ok=(len(failed)==0),imported=len(imported),failed=len(failed),
-                   results=imported,errors=failed,validation="bulk-catalog-v78")
+                   results=imported,errors=failed,validation="bulk-catalog-v80")
 
 @app.post("/api/kr-name-sync")
 def api_kr_name_sync():
@@ -175,7 +175,7 @@ def health():
         cache_items=len(CACHE),
         kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0,
         supabase_configured=bool(os.environ.get("SUPABASE_URL","") and os.environ.get("SUPABASE_SERVICE_KEY","")),
-        version="v78"
+        version="v80"
     )
 @app.get("/api/search")
 def search():
@@ -183,13 +183,60 @@ def search():
     q=request.args.get("q","").strip(); ck=q.lower()
     if ck in CACHE and time.time()-CACHE[ck]["t"]<TTL:
         out=dict(CACHE[ck]["d"]); out["cached"]=True; return jsonify(out)
-    p={"apiKey":KEY,"userHash":"","params":json.dumps({"query":q,"pageSize":20,"extendedData":1})}
+
+    # Brickset's default ordering is by set number, not search relevance.
+    # For text/product-name searches ask Brickset for ranked results and a
+    # larger candidate pool, then keep only genuine name matches below.
+    numeric_query=bool(re.fullmatch(r"\d+(?:-\d+)?",q))
+    params={"query":q,"pageSize":20 if numeric_query else 100,"extendedData":1}
+    if not numeric_query:
+        params["orderBy"]="Rank"
+    p={"apiKey":KEY,"userHash":"","params":json.dumps(params)}
     r=requests.get(API+"/getSets",params=p,timeout=20);r.raise_for_status()
     d=r.json()
-    # v78: when the user enters an exact set number, keep that set as the
+
+    if not numeric_query:
+        def norm_text(v):
+            return re.sub(r"[^a-z0-9]+"," ",str(v or "").lower()).strip()
+
+        nq=norm_text(q)
+        tokens=[t for t in nq.split() if t]
+        ranked=[]
+        for item in d.get("sets",[]) or []:
+            nn=norm_text(item.get("name"))
+            if not nn:
+                continue
+
+            score=0
+            if nn==nq:
+                score=1000
+            elif nn.startswith(nq+" ") or nn.startswith(nq):
+                score=900
+            elif nq and nq in nn:
+                score=800
+            elif tokens and all(t in nn.split() or t in nn for t in tokens):
+                score=700
+
+            # Global search is explicitly "set number or product name".
+            # Theme/subtheme-only matches are deliberately excluded so a query
+            # like "Dune" cannot show unrelated Space/Technic sets.
+            if score:
+                item["_name_match_score"]=score
+                ranked.append(item)
+
+        ranked.sort(key=lambda x:(-int(x.get("_name_match_score",0)),
+                                  int(x.get("year") or 0)*-1,
+                                  str(x.get("number") or "")))
+        for item in ranked:
+            item.pop("_name_match_score",None)
+        d["sets"]=ranked[:20]
+        d["matches"]=len(ranked)
+        d["search_mode"]="product_name"
+
+    # v80: when the user enters an exact set number, keep that set as the
     # primary result and classify only evidence-backed extra hits as relations.
     exact_num=re.sub(r"[^0-9]","",q)
-    if exact_num and q.replace("-1","").isdigit():
+    if exact_num and numeric_query:
         for item in d.get("sets",[]):
             n=str(item.get("number") or "").split("-")[0]
             if n==exact_num:
@@ -303,26 +350,263 @@ def sb_provenance_put(number,name_source=None,price_source=None,price_type=None)
     except Exception:
         return False
 
-@app.get("/api/kr-name-search")
-def api_kr_name_search():
-    q=(request.args.get("q") or "").strip().lower()
-    if not q: return jsonify(ok=True,results=[])
+
+SEARCH_ALIAS_TABLE="lego_search_aliases"
+SEARCH_ALIAS_CACHE={}
+KR_QUERY_CACHE={}
+KR_QUERY_TTL=21600
+DOMESTIC_NAME_CACHE={}
+DOMESTIC_NAME_TTL=21600
+
+def _alias_norm(value):
+    return re.sub(r"\s+"," ",str(value or "").strip().lower())
+
+def search_alias_get(query):
+    nq=_alias_norm(query)
+    if not nq: return []
     rows=[]; seen=set()
-    for n,row in load_kr_catalog().items():
-        name=str((row or {}).get("name_ko") or "")
-        if q in name.lower() or q in str(n).lower():
-            rows.append({"number":str(n),"name_ko":name,"source":(row or {}).get("source")}); seen.add(str(n))
+    for row in SEARCH_ALIAS_CACHE.values():
+        if nq in str(row.get("alias_normalized") or ""):
+            n=str(row.get("set_number") or "")
+            if n and n not in seen:
+                rows.append(dict(row)); seen.add(n)
     if sb_enabled():
         try:
-            url=f"{SUPABASE_URL}/rest/v1/lego_kr_catalog?select=set_number,name_ko,source&name_ko=ilike.*{q}*&limit=20"
-            r=requests.get(url,headers=_sb_headers(),timeout=8)
+            r=requests.get(
+                f"{SUPABASE_URL}/rest/v1/{SEARCH_ALIAS_TABLE}",
+                headers=_sb_headers(),
+                params={"select":"alias,set_number,alias_type,source,source_url",
+                        "alias_normalized":f"ilike.*{nq}*","limit":20},
+                timeout=7)
             if r.ok:
-                for row in r.json():
+                for row in r.json() or []:
                     n=str(row.get("set_number") or "")
                     if n and n not in seen:
-                        rows.append({"number":n,"name_ko":row.get("name_ko"),"source":row.get("source")}); seen.add(n)
-        except Exception: pass
-    return jsonify(ok=True,results=rows[:20],validation="name-search-v78")
+                        rows.append(row); seen.add(n)
+        except Exception:
+            pass
+    return rows[:20]
+
+def search_alias_put(alias, number, alias_type="korean_query", source="자동 검색 연결", source_url=None):
+    a=str(alias or "").strip()
+    n=re.sub(r"[^0-9]","",str(number or ""))
+    na=_alias_norm(a)
+    if not a or not na or not n: return False
+    row={"alias":a,"alias_normalized":na,"set_number":n,
+         "alias_type":alias_type,"source":source,"source_url":source_url,
+         "updated_at":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}
+    SEARCH_ALIAS_CACHE[(na,n)]=row
+    if not sb_enabled(): return True
+    try:
+        r=requests.post(
+            f"{SUPABASE_URL}/rest/v1/{SEARCH_ALIAS_TABLE}",
+            headers=_sb_headers("resolution=merge-duplicates,return=minimal"),
+            params={"on_conflict":"alias_normalized,set_number"},
+            json=row,timeout=7)
+        return r.ok
+    except Exception:
+        return False
+
+def _brickset_exact_set(number):
+    n=re.sub(r"[^0-9]","",str(number or ""))
+    if not n or not KEY: return None
+    try:
+        params=json.dumps({"setNumber":n+"-1","pageSize":1,"extendedData":1})
+        r=requests.get(API+"/getSets",
+                       params={"apiKey":KEY,"userHash":"","params":params},
+                       timeout=9)
+        if not r.ok: return None
+        for item in r.json().get("sets",[]) or []:
+            if str(item.get("number") or "").split("-")[0]==n:
+                return item
+    except Exception:
+        pass
+    return None
+
+def _query_candidate_numbers(page_html, query):
+    """Discovery only. Search-page text is never persisted as a product name."""
+    if not page_html: return []
+    text=html_lib.unescape(_decode_jsonish(page_html))
+    text=re.sub(r"<script[\s\S]*?</script>"," ",text,flags=re.I)
+    text=re.sub(r"<style[\s\S]*?</style>"," ",text,flags=re.I)
+    plain=re.sub(r"<[^>]+>"," ",text)
+    plain=re.sub(r"\s+"," ",plain)
+    q=re.sub(r"\s+","",str(query or "").lower())
+    if not q: return []
+    out=[]
+    for m in re.finditer(r"(?<!\d)(\d{3,7})(?:-\d+)?(?!\d)",plain):
+        n=m.group(1)
+        try:
+            iv=int(n)
+            if 1900<=iv<=2100: continue
+        except Exception:
+            pass
+        area=plain[max(0,m.start()-260):min(len(plain),m.end()+260)]
+        compact=re.sub(r"\s+","",area.lower())
+        if q not in compact: continue
+        if "레고" not in area and "lego" not in area.lower(): continue
+        if n not in out: out.append(n)
+        if len(out)>=12: break
+    return out
+
+def _persist_discovered_name(number, name, source, source_url=None):
+    n=re.sub(r"[^0-9]","",str(number or ""))
+    safe=_safe_kr_product_name(name,n)
+    if not n or not safe: return False
+    if not sb_enabled(): return True
+    old=(sb_get([n]).get(n) or {})
+    prov=sb_provenance_get(n)
+    row={"set_number":n,"name_ko":safe,
+         "price_krw":old.get("price_krw"),
+         "source":old.get("source") or source,
+         "source_url":old.get("source_url") or source_url,
+         "checked_at":time.strftime("%Y-%m-%d")}
+    ok=sb_upsert([row])
+    sb_provenance_put(n,source,prov.get("price_source"),prov.get("price_type"))
+    return bool(ok)
+
+def _domestic_kr_name_lookup(number):
+    """Find a Korean name only from an exact-number domestic product detail page."""
+    n=re.sub(r"[^0-9]","",str(number or ""))
+    if not n: return None
+    cached=DOMESTIC_NAME_CACHE.get(n)
+    if cached and time.time()-cached["t"]<DOMESTIC_NAME_TTL:
+        return cached["v"]
+
+    found=None
+    try:
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            futs=[ex.submit(_danawa_kr_lookup,n),ex.submit(_kream_kr_lookup,n)]
+            for fut in as_completed(futs):
+                try: row=fut.result()
+                except Exception: row=None
+                if row and row.get("name_ko"):
+                    found={"name_ko":row.get("name_ko"),
+                           "source":row.get("name_source") or row.get("source") or "국내 표기",
+                           "source_url":row.get("source_url")}
+                    break
+    except Exception:
+        pass
+    DOMESTIC_NAME_CACHE[n]={"t":time.time(),"v":found}
+    if found:
+        _persist_discovered_name(n,found["name_ko"],found["source"],found.get("source_url"))
+    return found
+
+def _discover_korean_query(query):
+    """Korean query -> domestic discovery -> exact Brickset validation -> learned alias."""
+    q=str(query or "").strip()
+    if not q or not re.search(r"[가-힣]",q): return []
+    ck=_alias_norm(q)
+    hit=KR_QUERY_CACHE.get(ck)
+    if hit and time.time()-hit["t"]<KR_QUERY_TTL:
+        return hit["v"]
+
+    headers={"User-Agent":"Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/143 Mobile Safari/537.36",
+             "Accept-Language":"ko-KR,ko;q=0.9,en;q=0.7"}
+    providers=[
+        ("다나와","https://search.danawa.com/mobile/dsearch.php",{"keyword":q}),
+        ("KREAM","https://kream.co.kr/search",{"keyword":q})
+    ]
+    candidates={}
+
+    def fetch_provider(provider):
+        name,url,params=provider
+        try:
+            r=requests.get(url,params=params,headers=headers,timeout=8)
+            if r.ok and not _bad_page_text((r.text or "")[:5000]):
+                return name,r.url,_query_candidate_numbers(r.text,q)
+        except Exception:
+            pass
+        return name,url,[]
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            futs=[ex.submit(fetch_provider,p) for p in providers]
+            for fut in as_completed(futs):
+                name,url,nums=fut.result()
+                for n in nums:
+                    candidates.setdefault(n,{"source":name+" 검색","source_url":url})
+    except Exception:
+        pass
+
+    rows=[]
+    nums=list(candidates)[:12]
+    if nums:
+        try:
+            with ThreadPoolExecutor(max_workers=min(4,len(nums))) as ex:
+                futs={ex.submit(_brickset_exact_set,n):n for n in nums}
+                for fut in as_completed(futs):
+                    n=futs[fut]
+                    try: item=fut.result()
+                    except Exception: item=None
+                    if not item: continue
+                    domestic=_domestic_kr_name_lookup(n) or {}
+                    rows.append({"number":n,
+                                 "name_ko":domestic.get("name_ko"),
+                                 "name_en":item.get("name"),
+                                 "source":domestic.get("source") or candidates[n]["source"],
+                                 "discovery_source":candidates[n]["source"]})
+                    search_alias_put(q,n,"korean_query",candidates[n]["source"],
+                                     candidates[n].get("source_url"))
+        except Exception:
+            pass
+
+    rows.sort(key=lambda x:(0 if x.get("name_ko") and ck in _alias_norm(x.get("name_ko")) else 1,
+                            str(x.get("number") or "")))
+    KR_QUERY_CACHE[ck]={"t":time.time(),"v":rows[:20]}
+    return rows[:20]
+
+@app.get("/api/kr-name-search")
+def api_kr_name_search():
+    q=(request.args.get("q") or "").strip()
+    ql=q.lower()
+    if not q: return jsonify(ok=True,results=[])
+
+    rows=[]; seen=set()
+
+    for n,row in load_kr_catalog().items():
+        name=str((row or {}).get("name_ko") or "")
+        if ql in name.lower() or ql in str(n).lower():
+            rows.append({"number":str(n),"name_ko":name,"name_en":None,
+                         "source":(row or {}).get("source"),"match":"catalog"})
+            seen.add(str(n))
+
+    if sb_enabled():
+        try:
+            url=f"{SUPABASE_URL}/rest/v1/lego_kr_catalog"
+            r=requests.get(url,headers=_sb_headers(),
+                           params={"select":"set_number,name_ko,source",
+                                   "name_ko":f"ilike.*{q}*","limit":20},timeout=7)
+            if r.ok:
+                for row in r.json() or []:
+                    n=str(row.get("set_number") or "")
+                    if n and n not in seen:
+                        rows.append({"number":n,"name_ko":row.get("name_ko"),
+                                     "name_en":None,"source":row.get("source"),
+                                     "match":"catalog"})
+                        seen.add(n)
+        except Exception:
+            pass
+
+    for a in search_alias_get(q):
+        n=str(a.get("set_number") or "")
+        if not n or n in seen: continue
+        stored=(sb_get([n]).get(n) if sb_enabled() else None) or {}
+        b=_brickset_exact_set(n)
+        rows.append({"number":n,"name_ko":stored.get("name_ko"),
+                     "name_en":(b or {}).get("name"),
+                     "source":a.get("source"),"match":"alias"})
+        seen.add(n)
+
+    if not rows and re.search(r"[가-힣]",q):
+        for row in _discover_korean_query(q):
+            n=str(row.get("number") or "")
+            if n and n not in seen:
+                rows.append(row); seen.add(n)
+
+    return jsonify(ok=True,results=rows[:20],
+                   smart_search=bool(re.search(r"[가-힣]",q)),
+                   validation="smart-ko-name-search-v80")
 
 @app.get("/api/kr-fast/<number>")
 def api_kr_fast(number):
@@ -360,7 +644,7 @@ def api_kr_fast(number):
     raw_price_source=(src_verified if verified.get("price") is not None
                       else src_stored if stored.get("price_krw") is not None else None)
 
-    # v78 precedence repair:
+    # v80 precedence repair:
     # A trusted repo/official catalog price is newer authority than stale Supabase provenance.
     # Never allow an old KREAM provenance row to relabel a verified official price.
     if verified.get("price") is not None:
@@ -379,7 +663,15 @@ def api_kr_fast(number):
     def ptype(src):
         return "official_msrp" if src=="LEGO Korea" else "release_price"
 
-    # Fast path: cached/verified KR price already exists. No KREAM/network discovery.
+    # v80: a cached price does not imply that the Korean product name is known.
+    # Fill a missing name from strict exact-number domestic detail pages.
+    if not name:
+        domestic_name=_domestic_kr_name_lookup(n)
+        if domestic_name and domestic_name.get("name_ko"):
+            name=domestic_name.get("name_ko")
+            name_source=domestic_name.get("source") or "국내 표기"
+
+    # Fast path: cached/verified KR price already exists.
     if price is not None and price_source is not None:
         # Self-heal stale provenance so subsequent requests stay correct.
         resolved_type=ptype(price_source)
@@ -388,7 +680,7 @@ def api_kr_fast(number):
         return jsonify(ok=True,number=n,name_ko=name,price=price,currency="KRW",
                        name_source=name_source,price_source=price_source,
                        price_type=resolved_type,cache_hit=True,
-                       validation="cache-first-v78")
+                       validation="cache-first-v80")
 
     # Cache miss: use existing enrichment once; it persists successful results to Supabase.
     item,diag=_merge_kr_sources(n)
@@ -396,7 +688,7 @@ def api_kr_fast(number):
         resolved_name_source=item.get("name_source") or name_source
         resolved_price_source=item.get("price_source")
         resolved_price_type=item.get("price_type")
-        # v78: every successful discovery becomes reusable catalog data.
+        # v80: every successful discovery becomes reusable catalog data.
         # Only already-filtered/trusted metadata from _merge_kr_sources reaches this point.
         if sb_enabled():
             sb_upsert([{"set_number":n,
@@ -411,11 +703,11 @@ def api_kr_fast(number):
                        name_source=resolved_name_source,
                        price_source=resolved_price_source,
                        price_type=resolved_price_type,cache_hit=False,
-                       diagnostics=diag,validation="cache-first-v78")
+                       diagnostics=diag,validation="cache-first-v80")
 
     return jsonify(ok=True,number=n,name_ko=name,price=None,currency="KRW",
                    name_source=name_source,price_source=None,price_type=None,
-                   cache_hit=False,validation="cache-first-v78")
+                   cache_hit=False,validation="cache-first-v80")
 
 @app.get("/api/kr-catalog")
 def kr_catalog():
@@ -467,7 +759,7 @@ def auto_sync():
         except Exception as e:
             return n,None,type(e).__name__
 
-    # v78: parallel requests prevent N owned sets from turning into an N*timeout request.
+    # v80: parallel requests prevent N owned sets from turning into an N*timeout request.
     targets=nums[:100]
     if targets:
         with ThreadPoolExecutor(max_workers=min(6,len(targets))) as ex:
@@ -601,22 +893,27 @@ def _extract_detail_links(html, base, number, allowed_host):
     return links
 
 def _kream_kr_lookup(number):
-    n=str(number); search=f"https://kream.co.kr/search?keyword={n}"
-    h={"User-Agent":"Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/143 Mobile Safari/537.36","Accept-Language":"ko-KR,ko;q=0.9"}
+    n=str(number); search="https://kream.co.kr/search"
+    h={"User-Agent":"Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/143 Mobile Safari/537.36",
+       "Accept-Language":"ko-KR,ko;q=0.9"}
     try:
-        r=requests.get(search,headers=h,timeout=12)
+        r=requests.get(search,params={"keyword":n},headers=h,timeout=10)
         if not r.ok or _bad_page_text(r.text[:5000]): return None
         for u in _extract_detail_links(r.text,r.url,n,"kream.co.kr"):
             try:
-                d=requests.get(u,headers=h,timeout=12)
+                d=requests.get(u,headers=h,timeout=10)
                 if not d.ok: continue
-                _name,price=_detail_page_metadata(d.text,n)
-                if price is not None:
-                    return {"name_ko":None,"price":price,"currency":"KRW","source":"KREAM 상세 발매정보 v32 (가격 전용)","source_url":d.url,"checked_at":time.strftime("%Y-%m-%d")}
-            except Exception: continue
-    except Exception: pass
+                name,price=_detail_page_metadata(d.text,n)
+                if name or price is not None:
+                    return {"name_ko":name,"price":price,"currency":"KRW",
+                            "source":"KREAM 상세 발매정보",
+                            "name_source":"KREAM 국내 표기" if name else None,
+                            "source_url":d.url,"checked_at":time.strftime("%Y-%m-%d")}
+            except Exception:
+                continue
+    except Exception:
+        pass
     return None
-
 
 KREAM_MODEL_ALIASES={
     # LEGO set/catalog number -> Korean retail/model number used by KREAM.
@@ -694,7 +991,7 @@ def _kream_recent_trade_lookup(number):
                             "source":"KREAM 최근 체결가",
                             "source_url":d.url,
                             "checked_at":time.strftime("%Y-%m-%d"),
-                            "validation":"completed-trades-visible-row-v78"
+                            "validation":"completed-trades-visible-row-v80"
                         }
                 except Exception:
                     continue
@@ -795,22 +1092,30 @@ def api_kream_market_batch():
                     failed.append(n)
     return jsonify(ok=True,items=items,failed=failed,
                    requested=len(nums),updated=len(items),
-                   validation="kream-recent-trade-v78")
+                   validation="kream-recent-trade-v80")
 
 def _danawa_kr_lookup(number):
-    """v33: Danawa is not trusted as a Korean-name source.
-    Keep a safe probe for diagnostics only; never return page/UI text as product metadata.
-    """
-    n=str(number); search=f"https://search.danawa.com/mobile/dsearch.php?keyword={n}"
+    """Exact set-number Danawa detail lookup. Search page is discovery only."""
+    n=str(number); search="https://search.danawa.com/mobile/dsearch.php"
     h={"User-Agent":"Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/143 Mobile Safari/537.36",
        "Accept-Language":"ko-KR,ko;q=0.9"}
     try:
-        r=requests.get(search,headers=h,timeout=12)
+        r=requests.get(search,params={"keyword":n},headers=h,timeout=10)
         if not r.ok or _bad_page_text(r.text[:5000]): return None
-        # Deliberately no name extraction. Search HTML is not authoritative enough.
-        return None
+        for u in _extract_detail_links(r.text,r.url,n,"danawa.com"):
+            try:
+                d=requests.get(u,headers=h,timeout=10)
+                if not d.ok: continue
+                name,_price=_detail_page_metadata(d.text,n)
+                if name:
+                    return {"name_ko":name,"price":None,"currency":"KRW",
+                            "source":"다나와 국내 표기","name_source":"다나와 국내 표기",
+                            "source_url":d.url,"checked_at":time.strftime("%Y-%m-%d")}
+            except Exception:
+                continue
     except Exception:
-        return None
+        pass
+    return None
 
 def sb_delete_bad(set_number):
     if not sb_enabled(): return False
@@ -864,7 +1169,8 @@ def _merge_kr_sources(number):
         if candidate.get("price") is not None: candidate["price"]=_safe_price(candidate.get("price"))
 
     name=(official.get("name_ko") or instruction_name or verified.get("name_ko")
-          or brick.get("name_ko") or stored.get("name_ko"))
+          or brick.get("name_ko") or stored.get("name_ko")
+          or danawa.get("name_ko") or kream.get("name_ko"))
     price=(official.get("price") if official.get("price") is not None else
            verified.get("price") if verified.get("price") is not None else
            kream.get("price") if kream.get("price") is not None else
@@ -884,12 +1190,14 @@ def _merge_kr_sources(number):
         else:
             source="LEGO Korea 조립설명서"
         source_url=instruction_url or source_url
-    # v78: keep name provenance and price provenance independent.
+    # v80: keep name provenance and price provenance independent.
     if official.get("name_ko"): name_source="LEGO Korea 공식"
     elif instruction_name: name_source="LEGO Korea 조립설명서"
     elif verified.get("name_ko"): name_source=verified.get("source") or "검증 한국 카탈로그"
     elif brick.get("name_ko"): name_source=brick.get("source") or "국내 판매자료"
     elif stored.get("name_ko"): name_source=stored.get("source")
+    elif danawa.get("name_ko"): name_source=danawa.get("name_source") or "다나와 국내 표기"
+    elif kream.get("name_ko"): name_source=kream.get("name_source") or "KREAM 국내 표기"
     else: name_source=None
 
     if official.get("price") is not None:
@@ -916,7 +1224,7 @@ def _merge_kr_sources(number):
     diag={"official":usable(official),"instructions":bool(instruction_name),
           "kream":usable(kream),"brickmecha":usable(brick),"danawa":usable(danawa),
           "stored":bool(stored.get("name_ko") or stored.get("price_krw") is not None),
-          "verified":bool(verified),"validation":"brickset-ko-overlay-v78"}
+          "verified":bool(verified),"validation":"brickset-ko-overlay-v80"}
     return item,diag
 
 def _kr_catalog_fallback(number):
@@ -1207,7 +1515,7 @@ def _clean_lego_title(s, number):
     return s if 1 < len(s) < 120 else None
 
 def _instruction_name(number):
-    """v78: Render->LEGO is HTTP 403. Use the verified indexed KR catalog instead."""
+    """v80: Render->LEGO is HTTP 403. Use the verified indexed KR catalog instead."""
     n=str(number).strip().split("-")[0]
     row=KR_CATALOG.get(n) if "KR_CATALOG" in globals() else None
     if row and row.get("name_ko"):
@@ -1303,7 +1611,7 @@ def api_kr_name_diagnostic(number):
     else:
         extract_error=None
     return jsonify(ok=True,number=n,checks=checks,extracted=extracted,
-                   extract_error=extract_error,validation="kr-name-diagnostic-v78")
+                   extract_error=extract_error,validation="kr-name-diagnostic-v80")
 
 
 @app.post("/api/kr-cleanup")
@@ -1420,7 +1728,7 @@ def relation_put(primary_number, related_number, relation_type, source="Brickset
         return False
 
 _V60_SEEDED=False
-def _v78_seed_official_catalog():
+def _v80_seed_official_catalog():
     global _V60_SEEDED
     if _V60_SEEDED or not sb_enabled():
         return
@@ -1445,8 +1753,8 @@ def _v78_seed_official_catalog():
         pass
 
 @app.before_request
-def _v78_bootstrap_catalog():
-    _v78_seed_official_catalog()
+def _v80_bootstrap_catalog():
+    _v80_seed_official_catalog()
 
 
 @app.get("/api/relations/<number>")
