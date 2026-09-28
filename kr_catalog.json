@@ -368,5 +368,13 @@
     "source": "LEGO Korea 공식",
     "source_url": "https://www.lego.com/ko-kr/product/how-to-train-your-dragon-toothless-10375",
     "checked_at": "2026-09-24"
+  },
+  "76218": {
+    "name_ko": "생텀 생토럼",
+    "price": null,
+    "currency": "KRW",
+    "source": "LEGO Korea 조립 설명서",
+    "checked_at": "2026-09-29",
+    "source_url": "https://www.lego.com/ko-kr/service/building-instructions/76218"
   }
 }
