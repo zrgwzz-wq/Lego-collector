@@ -1,11 +1,25 @@
-<!doctype html><html lang=ko><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>LEGO Collector v83</title><style>
-*{box-sizing:border-box}body{margin:0;background:#0d0d0f;color:#f5f5f5;font-family:system-ui,-apple-system,sans-serif}header{position:sticky;top:0;background:#171719;border-bottom:1px solid #2b2b30;padding:14px;z-index:3}main{max-width:880px;margin:auto;padding:12px 12px 90px}.brand{font-size:23px;font-weight:900}.sub,.muted{font-size:12px;color:#999}.page{display:none}.page.on{display:block}.card{background:#1c1c20;border:1px solid #303037;border-radius:17px;padding:14px;margin:9px 0}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.stat b{font-size:19px;display:block}.search{display:flex;gap:7px}.search input{flex:1}input,select,button{padding:10px;border-radius:10px;border:1px solid #444;background:#29292f;color:white;max-width:100%}button{background:#e3000b;font-weight:800}.product{display:grid;grid-template-columns:95px 1fr;gap:11px}.product img{width:95px;height:95px;object-fit:contain;background:white;border-radius:11px}.unit{border-top:1px solid #36363c;margin-top:12px;padding-top:10px}.field{margin:5px 0}.field label{display:block;font-size:11px;color:#999}.field input,.field select{width:100%}.badge{font-size:10px;background:#393940;border-radius:20px;padding:4px 7px;display:inline-block;margin:3px}.nav{position:fixed;bottom:0;left:0;right:0;display:grid;grid-template-columns:repeat(5,1fr);background:#1b1b1f;border-top:1px solid #333;z-index:5}.nav button{border:0;background:none;color:#999;padding:10px 2px}.nav button.on{color:#fff}.positive{color:#6ed785}.negative{color:#ff7474}.source{border-left:3px solid #777;padding-left:9px;margin:8px 0}.choice{display:flex;gap:5px;flex-wrap:wrap}.choice button{background:#34343a}.choice button.on{background:#e3000b}.empty{text-align:center;color:#777;padding:25px}
+<!doctype html><html lang=ko><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>LEGO Collector v85</title><style>
+*{box-sizing:border-box}
+:root{--lego-red:#e3000b;--lego-red-dark:#ad0007;--lego-yellow:#ffd400;--lego-yellow-dark:#c7a300;--lego-blue:#0057b8;--lego-blue-dark:#003a7a;--lego-text:#fffaf0}
+body{margin:0;color:var(--lego-text);font-family:system-ui,-apple-system,sans-serif;background-color:#111318;background-image:radial-gradient(circle at 24px 24px, rgba(255,212,0,.08) 0 10px, transparent 10.5px),radial-gradient(circle at 64px 64px, rgba(227,0,11,.06) 0 10px, transparent 10.5px),linear-gradient(180deg,#1c1e25 0%,#0f1116 100%);background-size:88px 88px,88px 88px,100% 100%;background-attachment:fixed}
+header{position:sticky;top:0;background:linear-gradient(180deg,#ff1a25 0%,#d1000a 100%);border-bottom:4px solid var(--lego-yellow);padding:14px;z-index:3;box-shadow:0 6px 18px #0000003d}
+main{max-width:880px;margin:auto;padding:14px 12px 96px}
+.brand{font-size:23px;font-weight:900;letter-spacing:.2px;text-shadow:0 2px 0 rgba(0,0,0,.18)}
+.sub,.muted{font-size:12px;color:#ffe9a6}.page{display:none}.page.on{display:block}
+.card{background:linear-gradient(180deg,#242730 0%,#1b1e26 100%);border:2px solid rgba(255,212,0,.55);border-radius:20px;padding:14px;margin:10px 0;box-shadow:0 8px 0 rgba(109,83,0,.55),0 18px 32px rgba(0,0,0,.20)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.stat b{font-size:19px;display:block}.search{display:flex;gap:8px}.search input{flex:1}
+input,select,button{padding:11px 12px;border-radius:14px;border:2px solid rgba(255,212,0,.45);background:#2d303a;color:white;max-width:100%;box-shadow:inset 0 1px 0 rgba(255,255,255,.06)}
+input::placeholder{color:#aeb4c2}
+input:focus,select:focus{outline:none;border-color:var(--lego-yellow);box-shadow:0 0 0 3px rgba(255,212,0,.16), inset 0 1px 0 rgba(255,255,255,.06)}
+button{background:linear-gradient(180deg,#ff2b35 0%,var(--lego-red) 100%);border-color:#ff8086;color:#fff;font-weight:900;letter-spacing:.2px;box-shadow:0 4px 0 var(--lego-red-dark),0 10px 16px rgba(0,0,0,.16);cursor:pointer;transition:transform .06s ease,box-shadow .06s ease,filter .15s ease}
+button:hover{filter:brightness(1.03)}
+button:active{transform:translateY(2px);box-shadow:0 2px 0 var(--lego-red-dark),0 6px 10px rgba(0,0,0,.14)}.product{display:grid;grid-template-columns:125px 1fr;gap:14px;align-items:start}.product img{width:125px;height:125px;object-fit:contain;background:white;border-radius:18px;border:3px solid rgba(255,212,0,.65);box-shadow:0 8px 18px rgba(0,0,0,.18)}.unit{border-top:1px solid #36363c;margin-top:12px;padding-top:10px}.field{margin:5px 0}.field label{display:block;font-size:11px;color:#999}.field input,.field select{width:100%}.badge{font-size:10px;background:rgba(255,212,0,.12);border:1px solid rgba(255,212,0,.45);color:#ffe593;border-radius:999px;padding:4px 8px;display:inline-block;margin:3px}.nav{position:fixed;bottom:0;left:0;right:0;display:grid;grid-template-columns:repeat(5,1fr);background:linear-gradient(180deg,#292c35 0%,#1d2027 100%);border-top:4px solid var(--lego-yellow);z-index:5;box-shadow:0 -10px 24px rgba(0,0,0,.28)}.nav button{border:0;background:none;color:#c5cad5;padding:10px 2px;box-shadow:none;border-radius:0}.nav button.on{color:var(--lego-yellow);text-shadow:0 0 8px rgba(255,212,0,.2)}.positive{color:#6ed785}.negative{color:#ff7474}.source{border-left:3px solid #777;padding-left:9px;margin:8px 0}.choice{display:flex;gap:5px;flex-wrap:wrap}.choice button{background:linear-gradient(180deg,#1770db 0%,var(--lego-blue) 100%);border-color:#6fb3ff;box-shadow:0 4px 0 var(--lego-blue-dark),0 10px 16px rgba(0,0,0,.16)}.choice button.on{background:linear-gradient(180deg,#ff2b35 0%,var(--lego-red) 100%);border-color:#ff8086;box-shadow:0 4px 0 var(--lego-red-dark),0 10px 16px rgba(0,0,0,.16)}.empty{text-align:center;color:#777;padding:25px}
 .collection-toolbar{display:flex;align-items:stretch;gap:10px;flex-direction:column;margin:0 0 16px}
 .collection-view-choice{flex-wrap:nowrap}
 .collection-view-choice button{min-width:74px}
 .collection-card{padding:16px}
-.collection-summary{display:grid;grid-template-columns:74px 1fr auto;gap:12px;align-items:center}
-.collection-summary img{width:74px;height:74px;object-fit:contain;background:#fff;border-radius:14px}
+.collection-summary{display:grid;grid-template-columns:100px 1fr auto;gap:14px;align-items:center}
+.collection-summary img{width:100px;height:100px;object-fit:contain;background:#fff;border-radius:18px;border:3px solid rgba(255,212,0,.65);box-shadow:0 8px 18px rgba(0,0,0,.18)}
 .collection-summary-main{min-width:0}
 .collection-title{font-weight:800;line-height:1.25}
 .collection-meta{color:#999;font-size:13px;margin-top:4px}
@@ -15,26 +29,26 @@
 .collection-details{margin-top:12px}
 .collection-pl.positive,.collection-pl.negative{font-weight:700}
 @media(max-width:620px){
- .collection-summary{grid-template-columns:64px 1fr}
- .collection-summary img{width:64px;height:64px}
+ .collection-summary{grid-template-columns:92px 1fr}
+ .collection-summary img{width:92px;height:92px}
  .collection-actions{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr}
  .collection-actions .collection-toggle:only-child{grid-column:2}
 }
 .valuation-badge{font-size:10px;font-weight:600;vertical-align:middle;margin-left:3px}.valuation-source{margin-top:5px;font-size:11px}
 .collection-layout-choice{display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%}
-.collection-layout-choice button{width:100%;background:#34343a}.collection-layout-choice button.on{background:#e3000b}
+.collection-layout-choice button{width:100%;background:linear-gradient(180deg,#1770db 0%,var(--lego-blue) 100%);border-color:#6fb3ff;box-shadow:0 4px 0 var(--lego-blue-dark),0 10px 16px rgba(0,0,0,.16)}.collection-layout-choice button.on{background:linear-gradient(180deg,#ff2b35 0%,var(--lego-red) 100%);border-color:#ff8086;box-shadow:0 4px 0 var(--lego-red-dark),0 10px 16px rgba(0,0,0,.16)}
 .collection-mode-tools{display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%}
-.collection-mode-tools button{width:100%;margin:0;background:#34343a}
-.collection-mode-tools button.on{background:#e3000b}
+.collection-mode-tools button{width:100%;margin:0;background:linear-gradient(180deg,#ffd93e 0%,var(--lego-yellow) 100%);color:#3a2a00;border-color:#fff1a3;box-shadow:0 4px 0 var(--lego-yellow-dark),0 10px 16px rgba(0,0,0,.14)}
+.collection-mode-tools button.on{background:linear-gradient(180deg,#ff2b35 0%,var(--lego-red) 100%);color:#fff;border-color:#ff8086;box-shadow:0 4px 0 var(--lego-red-dark),0 10px 16px rgba(0,0,0,.16)}
 .collection-mode-tools .wide-tool{grid-column:1/-1}
 .card-mode-tools{margin-top:2px}
 .sheet-mode-tools{margin-top:2px}
-.sheet-wrap{overflow:auto;border:1px solid #303037;border-radius:15px;background:#17171b;max-height:68vh;margin-top:10px}
+.sheet-wrap{overflow:auto;border:2px solid rgba(255,212,0,.45);border-radius:18px;background:#171a20;max-height:68vh;margin-top:10px;box-shadow:0 10px 26px rgba(0,0,0,.18)}
 .collection-sheet{border-collapse:separate;border-spacing:0;min-width:1640px;width:100%;font-size:12px}
-.collection-sheet th,.collection-sheet td{border-right:1px solid #303037;border-bottom:1px solid #303037;padding:7px;vertical-align:middle;background:#1c1c20}
-.collection-sheet th{position:sticky;top:0;z-index:3;background:#29292f;white-space:nowrap;text-align:left}
-.collection-sheet th:first-child,.collection-sheet td:first-child{position:sticky;left:0;z-index:2;background:#222227}
-.collection-sheet th:first-child{z-index:4;background:#303036}
+.collection-sheet th,.collection-sheet td{border-right:1px solid #393d48;border-bottom:1px solid #393d48;padding:7px;vertical-align:middle;background:#20232b}
+.collection-sheet th{position:sticky;top:0;z-index:3;background:#303647;color:#ffe593;white-space:nowrap;text-align:left}
+.collection-sheet th:first-child,.collection-sheet td:first-child{position:sticky;left:0;z-index:2;background:#272b35}
+.collection-sheet th:first-child{z-index:4;background:#374053}
 .collection-sheet input,.collection-sheet select{width:100%;min-width:92px;padding:8px;border-radius:8px;font-size:12px}
 .collection-sheet .sheet-name{min-width:210px;max-width:260px;white-space:normal;font-weight:700}
 .collection-sheet .sheet-memo{min-width:180px}
@@ -48,34 +62,34 @@
 .collection-find{display:grid;grid-template-columns:1fr auto;gap:8px;margin:0 0 6px}
 .collection-find input{width:100%;min-width:0}
 .collection-find button{min-width:76px}
-.collection-find-status{min-height:18px;margin:0 2px 10px}
-.collection-found{outline:2px solid #e3000b;outline-offset:2px}
-.collection-sheet tr.collection-found td{background:#302025}
+.collection-find-status{min-height:18px;margin:0 2px 10px;color:#ffe593}
+.collection-found{outline:3px solid var(--lego-yellow);outline-offset:2px}
+.collection-sheet tr.collection-found td{background:#3a2f10}
 .scroll-top-btn{display:none;position:fixed;right:16px;bottom:74px;z-index:9;width:48px;height:48px;border-radius:50%;
-  padding:0;background:#3a3a40;border:1px solid #666;font-size:25px;line-height:48px;box-shadow:0 4px 16px #0008}
+  padding:0;background:linear-gradient(180deg,#ffdb43 0%,var(--lego-yellow) 100%);color:#3a2a00;border:2px solid #fff1a3;font-size:25px;line-height:48px;box-shadow:0 4px 0 var(--lego-yellow-dark),0 12px 20px #0006}
 .scroll-top-btn.show{display:block}
 @media(max-width:620px){
  .collection-find{grid-template-columns:1fr 78px}
  .scroll-top-btn{right:14px;bottom:72px}
 }
 
-.theme-badge{display:inline-block;margin-top:5px;padding:3px 7px;border-radius:999px;background:#34343a;color:#ddd;font-size:10px;font-weight:700}
+.theme-badge{display:inline-block;margin-top:5px;padding:4px 8px;border-radius:999px;background:rgba(0,87,184,.2);border:1px solid rgba(111,179,255,.4);color:#dcecff;font-size:10px;font-weight:800}
 .collection-filter-tools{display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%}
 .collection-filter-tools select{width:100%;margin:0}
 .collection-filter-tools select:last-child{grid-column:1/-1}
 #collectionFilterSummary{min-height:16px;margin-top:-2px}
 .price-history-box{margin-top:12px;padding-top:10px;border-top:1px solid #36363c}
-.price-history-box button{background:#34343a}
+.price-history-box button{background:linear-gradient(180deg,#1770db 0%,var(--lego-blue) 100%);border-color:#6fb3ff;box-shadow:0 4px 0 var(--lego-blue-dark),0 10px 16px rgba(0,0,0,.16)}
 .price-history-panel{margin-top:8px}
 .price-history-stats{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0;font-size:11px;color:#aaa}
-.price-history-chart{width:100%;height:auto;display:block;background:#151518;border-radius:12px;border:1px solid #303037;color:#e3000b}.price-history-chart circle{fill:#e3000b;stroke:#e3000b}
+.price-history-chart{width:100%;height:auto;display:block;background:#15181f;border-radius:14px;border:2px solid rgba(255,212,0,.35);color:var(--lego-red)}.price-history-chart circle{fill:var(--lego-red);stroke:var(--lego-red)}
 .price-history-list{font-size:11px;color:#aaa;margin-top:6px;max-height:100px;overflow:auto}
 .search-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}
 .search-actions button{margin:0}
-.search-actions .secondary{background:#34343a}
+.search-actions .secondary{background:linear-gradient(180deg,#1770db 0%,var(--lego-blue) 100%);border-color:#6fb3ff;box-shadow:0 4px 0 var(--lego-blue-dark),0 10px 16px rgba(0,0,0,.16)}
 .wishlist-toolbar{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
-.wishlist-card{display:grid;grid-template-columns:82px 1fr;gap:12px;align-items:start}
-.wishlist-card img{width:82px;height:82px;object-fit:contain;background:#fff;border-radius:13px}
+.wishlist-card{display:grid;grid-template-columns:110px 1fr;gap:14px;align-items:start}
+.wishlist-card img{width:110px;height:110px;object-fit:contain;background:#fff;border-radius:18px;border:3px solid rgba(255,212,0,.65);box-shadow:0 8px 18px rgba(0,0,0,.18)}
 .wishlist-info{min-width:0}
 .wishlist-title{font-weight:800;line-height:1.25}
 .wishlist-price{margin-top:7px}
@@ -83,18 +97,33 @@
 .wishlist-target .wide{grid-column:1/-1}
 .wishlist-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}
 .wishlist-actions button{margin:0}
-.wishlist-hit{color:#6ed785;font-weight:800}
-.wishlist-gap{color:#aaa;font-size:12px}
+.wishlist-hit{color:#9af0a9;font-weight:800}
+.wishlist-gap{color:#e5ddb6;font-size:12px}
 @media(max-width:620px){
  .nav button{font-size:11px}
- .wishlist-card{grid-template-columns:70px 1fr}
- .wishlist-card img{width:70px;height:70px}
+ .wishlist-card{grid-template-columns:100px 1fr}
+ .wishlist-card img{width:100px;height:100px}
  .wishlist-target{grid-template-columns:1fr}
  .wishlist-target .wide{grid-column:auto}
 }
+
+@media(max-width:620px){
+ .product{grid-template-columns:112px 1fr;gap:12px}
+ .product img{width:112px;height:112px}
+}
+
+.page-title,.section-title{letter-spacing:.2px}
+.positive{color:#8ef0a1}.negative{color:#ff8f8f}
+.source{border-left:4px solid var(--lego-yellow);padding-left:10px;margin:8px 0;color:#ffe7a1}
+.empty{text-align:center;color:#d8c98a;padding:25px}
+.secondary, .wishlist-actions button:not(:first-child), .search-actions button:not(:first-child){background:linear-gradient(180deg,#1770db 0%,var(--lego-blue) 100%);border-color:#6fb3ff;box-shadow:0 4px 0 var(--lego-blue-dark),0 10px 16px rgba(0,0,0,.16)}
+button[disabled]{opacity:.55;filter:grayscale(.2);cursor:not-allowed;box-shadow:none}
+.collection-title,.wishlist-title{font-weight:900}
+.collection-meta,.collection-money,.wishlist-price,.valuation-source,.price-history-list,.price-history-stats{color:#f1e4aa}
+.stat,.field label{color:#f5e08a}
 </style><script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script></head><body>
-<header><div class=brand>🧱 LEGO Collector <span style="color:#e3000b">v83</span></div><div id=status class=sub>서버 확인 중…</div><div id=catalogStatus class=sub></div><div id=syncStatus class=sub>⏳ 영구 카탈로그 동기화 준비 중…</div></header><main>
-<section id=dash class="page on"><h2>대시보드</h2><div class=grid><div class="card stat">보유수량<b id=cnt>0개</b></div><div class="card stat">보유 정가<b id=listVal>₩0</b></div><div class="card stat">보유 구매가<b id=buy>₩0</b></div><div class="card stat">평가금액<b id=val>₩0</b></div><div class="card stat">미실현손익<b id=pl>₩0</b></div><div class="card stat">판매완료<b id=soldCnt>0개</b></div><div class="card stat">실현손익<b id=realPL>₩0</b></div></div><div class=card><b>v83</b><div class=muted>앱 실행 시 Brickset과 한국 LEGO 데이터를 자동 확인합니다. 단종 세트의 한글명은 LEGO Korea 조립설명서에서도 찾고, Supabase가 연결되어 있으면 새로 찾은 정보를 영구 저장해 다음부터 즉시 재사용합니다.</div><button onclick=updateAllKr()>🇰🇷 한국 카탈로그 다시 적용</button>
+<header><div class=brand>🧱 LEGO Collector <span style="color:#e3000b">v85</span></div><div id=status class=sub>서버 확인 중…</div><div id=catalogStatus class=sub></div><div id=syncStatus class=sub>⏳ 영구 카탈로그 동기화 준비 중…</div></header><main>
+<section id=dash class="page on"><h2>대시보드</h2><div class=grid><div class="card stat">보유수량<b id=cnt>0개</b></div><div class="card stat">보유 정가<b id=listVal>₩0</b></div><div class="card stat">보유 구매가<b id=buy>₩0</b></div><div class="card stat">평가금액<b id=val>₩0</b></div><div class="card stat">미실현손익<b id=pl>₩0</b></div><div class="card stat">판매완료<b id=soldCnt>0개</b></div><div class="card stat">실현손익<b id=realPL>₩0</b></div></div><div class=card><b>v85</b><div class=muted>앱 실행 시 Brickset과 한국 LEGO 데이터를 자동 확인합니다. 단종 세트의 한글명은 LEGO Korea 조립설명서에서도 찾고, Supabase가 연결되어 있으면 새로 찾은 정보를 영구 저장해 다음부터 즉시 재사용합니다.</div><button onclick=updateAllKr()>🇰🇷 한국 카탈로그 다시 적용</button>
 <button onclick=usage()>Brickset API 사용량 확인</button><div id=krUpdateBox class=muted></div><div id=usageBox class=muted></div></div></section>
 <section id=search class=page><h2>검색</h2><div class=search><input id=q placeholder="세트번호 또는 제품명" enterkeyhint="search" inputmode="search"><button onclick=go()>검색</button></div><div id=res></div></section>
 <section id=collection class=page><h2>소장목록</h2>
@@ -162,7 +191,7 @@
 </div>
 <div id=wishlistList></div>
 </section>
-<section id=prices class=page><h2>가격관리</h2><div class=card><b>국내 가격 · v83</b><div class=muted>LEGO Korea 공홈에 현재 등록된 제품은 공식 한글명·원화 가격을 최우선으로 자동 동기화합니다. 공홈에서 찾지 못한 단종 제품만 검증 카탈로그/한국 발매가를 보조로 사용합니다.</div></div><div id=priceList></div></section>
+<section id=prices class=page><h2>가격관리</h2><div class=card><b>국내 가격 · v85</b><div class=muted>LEGO Korea 공홈에 현재 등록된 제품은 공식 한글명·원화 가격을 최우선으로 자동 동기화합니다. 공홈에서 찾지 못한 단종 제품만 검증 카탈로그/한국 발매가를 보조로 사용합니다.</div></div><div id=priceList></div></section>
 
 </main>
 <button id=scrollTopBtn class=scroll-top-btn type=button aria-label="맨 위로 이동" onclick="scrollToTop()">↑</button>
@@ -198,7 +227,7 @@ function addWishlistEncoded(payload){
   }
 }
 
-let db=JSON.parse(localStorage.getItem("legov83")||localStorage.getItem("legov82")||localStorage.getItem("legov81")||localStorage.getItem("legov80")||localStorage.getItem("legov79")||localStorage.getItem("legov78")||localStorage.getItem("legov77")||localStorage.getItem("legov76")||localStorage.getItem("legov75")||localStorage.getItem("legov74")||localStorage.getItem("legov73")||localStorage.getItem("legov72")||localStorage.getItem("legov71")||localStorage.getItem("legov70")||localStorage.getItem("legov23.2")||localStorage.getItem("legov22")||localStorage.getItem("legov21")||localStorage.getItem("legov20")||localStorage.getItem("legov19")||localStorage.getItem("legov18")||localStorage.getItem("legov17")||localStorage.getItem("legov16")||localStorage.getItem("legov15")||localStorage.getItem("legov14")||localStorage.getItem("legov13")||localStorage.getItem("legov12")||localStorage.getItem("legov11")||localStorage.getItem("legov10")||localStorage.getItem("legov9")||localStorage.getItem("legov8")||"{}"),won=n=>"₩"+Math.round(+n||0).toLocaleString("ko-KR"),today=()=>new Date().toISOString().slice(0,10);
+let db=JSON.parse(localStorage.getItem("legov85")||localStorage.getItem("legov85")||localStorage.getItem("legov83")||localStorage.getItem("legov82")||localStorage.getItem("legov81")||localStorage.getItem("legov80")||localStorage.getItem("legov79")||localStorage.getItem("legov78")||localStorage.getItem("legov77")||localStorage.getItem("legov76")||localStorage.getItem("legov75")||localStorage.getItem("legov74")||localStorage.getItem("legov73")||localStorage.getItem("legov72")||localStorage.getItem("legov71")||localStorage.getItem("legov70")||localStorage.getItem("legov23.2")||localStorage.getItem("legov22")||localStorage.getItem("legov21")||localStorage.getItem("legov20")||localStorage.getItem("legov19")||localStorage.getItem("legov18")||localStorage.getItem("legov17")||localStorage.getItem("legov16")||localStorage.getItem("legov15")||localStorage.getItem("legov14")||localStorage.getItem("legov13")||localStorage.getItem("legov12")||localStorage.getItem("legov11")||localStorage.getItem("legov10")||localStorage.getItem("legov9")||localStorage.getItem("legov8")||"{}"),won=n=>"₩"+Math.round(+n||0).toLocaleString("ko-KR"),today=()=>new Date().toISOString().slice(0,10);
 
 let wishlist={};
 try{wishlist=JSON.parse(localStorage.getItem("legoWishlist")||"{}")||{}}catch(e){wishlist={}}
@@ -265,7 +294,7 @@ Object.entries(db).forEach(([n,x])=>{
        }
      }
    }
-   if(changed)localStorage.setItem("legov83",JSON.stringify(db));
+   if(changed)localStorage.setItem("legov85",JSON.stringify(db));
  }catch(e){}
 })();
 function retail(s){let L=s.LEGOCom||{};for(let c of ["US","UK","CA","DE"])if(L[c]?.retailPrice)return {price:L[c].retailPrice,currency:c=="US"?"USD":c,region:c};return null}
@@ -321,7 +350,7 @@ async function go(){
      ?`<div class="muted">한글 제품명 출처: ${kr.name_source}</div>`:"";
    return `<div class="card product"><img src="${img}"><div><b>${s.number} ${title}</b>${nameKo&&s.name!=nameKo?`<div class=muted>${s.name}</div>`:""}${nameSourceHtml}<div class=muted>${s.year||""} · ${s.theme||""} · ${s.pieces||0} pcs ${d.cached?"· 캐시":""}</div>${priceHtml}<div class=search-actions><button type="button" onclick='addOwnedEncoded("${btoa(unescape(encodeURIComponent(JSON.stringify(o))))}")'>소장 등록</button><button type="button" class=secondary onclick='addWishlistEncoded("${btoa(unescape(encodeURIComponent(JSON.stringify(o))))}")'>♡ 관심 등록</button></div></div></div>`;
   }));
-  localStorage.setItem("legov83",JSON.stringify(db));draw();
+  localStorage.setItem("legov85",JSON.stringify(db));draw();
   const exact=String(searchValue).replace(/\D/g,"");
   if(exact && d.primary_number){
     const primary=[], related=[];
@@ -386,7 +415,7 @@ function setKoName(n,v){db[n].set.nameKo=(v||"").trim();db[n].set.nameKoDate=tod
 function mkt(n,k,v){db[n].market[k]=["krMsrp","kream","shop"].includes(k)?(+v||0):v;if(k=="krMsrp"&&!db[n].market.krMsrpDate)db[n].market.krMsrpDate=today();if(k=="kream"&&!db[n].market.kreamDate)db[n].market.kreamDate=today();if(k=="shop"&&!db[n].market.shopDate)db[n].market.shopDate=today();save()}
 function setMode(n,m){db[n].market.mode=m;apply(n);save()}
 function apply(n){let x=db[n],m=x.market,p=m.mode=="kream"?+m.kream:m.mode=="shop"?+m.shop:0;if(m.mode!="manual"&&p)x.u.filter(u=>!u.sold).forEach(u=>u.value=p)}
-function save(redraw=true){localStorage.setItem("legov83",JSON.stringify(db));if(redraw)draw()}
+function save(redraw=true){localStorage.setItem("legov85",JSON.stringify(db));if(redraw)draw()}
 function del(n,i){db[n].u.splice(i,1);if(!db[n].u.length&&confirm("세트 정보도 삭제할까요?"))delete db[n];save()}
 async function usage(){try{let d=await fetch("/api/usage").then(r=>r.json());usageBox.textContent="최근 사용량: "+JSON.stringify(d)}catch(e){usageBox.textContent="사용량 조회 실패"}}
 
@@ -632,7 +661,7 @@ async function previewCollectionImport(ev){
   }
   pendingCollectionImport={rows,fileName:file.name};
   box.innerHTML=`<b>${escHtml(file.name)}</b><div class=muted>일치 ${matched}행 · 변경 예상 ${changed}행${ignored?` · 미일치 ${ignored}행`:""}</div><div class=preview-lines>${samples.length?samples.map(escHtml).join('<br>'):'변경사항이 없거나 값이 동일합니다.'}</div><div class=import-actions><button type=button onclick="applyCollectionImport()">변경 적용</button><button type=button class=secondary onclick="cancelCollectionImport()">취소</button></div>`;
- }catch(e){pendingCollectionImport=null;box.innerHTML='<b>파일을 읽지 못했습니다.</b><div class=muted>v83에서 내보낸 Excel/CSV 형식을 사용해 주세요.</div>'}
+ }catch(e){pendingCollectionImport=null;box.innerHTML='<b>파일을 읽지 못했습니다.</b><div class=muted>v85에서 내보낸 Excel/CSV 형식을 사용해 주세요.</div>'}
 }
 function applyCollectionImport(){
  if(!pendingCollectionImport)return;let applied=0,ignored=0;

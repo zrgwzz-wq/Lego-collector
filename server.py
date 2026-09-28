@@ -35,7 +35,7 @@ def api_kr_overlay(number):
     if not item:
         return jsonify(ok=False,number=n,name_ko=None,price=None,currency="KRW",
                        name_source=None,price_source=None,
-                       diagnostics=diag,validation="brickset-ko-overlay-v83")
+                       diagnostics=diag,validation="brickset-ko-overlay-v85")
 
     name=item.get("name_ko")
     price=item.get("price")
@@ -53,7 +53,7 @@ def api_kr_overlay(number):
     return jsonify(ok=True,number=n,name_ko=name,price=price,
                    currency=item.get("currency") or "KRW",
                    name_source=name_source,price_source=price_source,price_type=price_type,
-                   diagnostics=diag,validation="brickset-ko-overlay-v83")
+                   diagnostics=diag,validation="brickset-ko-overlay-v85")
 
 
 @app.post("/api/kr-catalog-import")
@@ -121,7 +121,7 @@ def api_kr_catalog_import():
             failed.append({"number":str(raw.get("number") or raw.get("set_number") or ""),
                            "error":str(e)})
     return jsonify(ok=(len(failed)==0),imported=len(imported),failed=len(failed),
-                   results=imported,errors=failed,validation="bulk-catalog-v83")
+                   results=imported,errors=failed,validation="bulk-catalog-v85")
 
 @app.post("/api/kr-name-sync")
 def api_kr_name_sync():
@@ -175,7 +175,7 @@ def health():
         cache_items=len(CACHE),
         kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0,
         supabase_configured=bool(os.environ.get("SUPABASE_URL","") and os.environ.get("SUPABASE_SERVICE_KEY","")),
-        version="v83"
+        version="v85"
     )
 @app.get("/api/search")
 def search():
@@ -233,7 +233,7 @@ def search():
         d["matches"]=len(ranked)
         d["search_mode"]="product_name"
 
-    # v83: when the user enters an exact set number, keep that set as the
+    # v85: when the user enters an exact set number, keep that set as the
     # primary result and classify only evidence-backed extra hits as relations.
     exact_num=re.sub(r"[^0-9]","",q)
     if exact_num and numeric_query:
@@ -558,6 +558,12 @@ def _discover_korean_query(query):
 
 
 KO_TRANSLATE_CACHE={}
+KO_FAST_TERM_HINTS={
+    # Common Korean transliterations used in LEGO product names.
+    # These avoid an external translation request on the hot search path.
+    "생텀":"sanctum",
+    "생토럼":"sanctorum",
+}
 
 def _translate_ko_to_en(query):
     """Best-effort Korean -> English fallback for product-name discovery.
@@ -569,6 +575,10 @@ def _translate_ko_to_en(query):
     ck=_alias_norm(q)
     if ck in KO_TRANSLATE_CACHE:
         return KO_TRANSLATE_CACHE[ck]
+    if ck in KO_FAST_TERM_HINTS:
+        translated=KO_FAST_TERM_HINTS[ck]
+        KO_TRANSLATE_CACHE[ck]=translated
+        return translated
     translated=None
     try:
         r=requests.get(
@@ -650,24 +660,24 @@ def api_kr_name_search():
     q=(request.args.get("q") or "").strip()
     ql=q.lower()
     if not q:
-        return jsonify(ok=True,results=[],validation="smart-ko-name-search-v83")
+        return jsonify(ok=True,results=[],validation="smart-ko-name-search-v85")
 
-    # 1) Local verified catalog is instant. Return immediately if it matches.
-    local_rows=[]
+    rows=[]; seen=set(); strategy=[]
+    is_korean=bool(re.search(r"[가-힣]",q))
+
+    # 1) Local verified Korean catalog.
     for n,row in load_kr_catalog().items():
         name=str((row or {}).get("name_ko") or "")
         if ql in name.lower() or ql in str(n).lower():
-            local_rows.append({
+            rows.append({
                 "number":str(n),"name_ko":name,"name_en":None,
                 "source":(row or {}).get("source"),"match":"catalog"
             })
-    if local_rows:
-        return jsonify(ok=True,results=local_rows[:20],
-                       strategy=["local_catalog"],
-                       smart_search=bool(re.search(r"[가-힣]",q)),
-                       validation="smart-ko-name-search-v83")
+            seen.add(str(n))
+    if rows:
+        strategy.append("local_catalog")
 
-    # 2) Check Supabase Korean catalog + learned aliases in parallel, with short timeouts.
+    # 2) Supabase Korean catalog + learned aliases. Short, bounded lookups.
     remote_rows=[]; alias_rows=[]
     if sb_enabled():
         def remote_catalog():
@@ -694,7 +704,6 @@ def api_kr_name_search():
         except Exception:
             remote_rows=[]; alias_rows=[]
 
-    rows=[]; seen=set()
     for row in remote_rows or []:
         n=str(row.get("set_number") or "")
         if n and n not in seen:
@@ -705,37 +714,57 @@ def api_kr_name_search():
 
     for a in alias_rows or []:
         n=str(a.get("set_number") or "")
-        if not n or n in seen:
-            continue
-        rows.append({"number":n,"name_ko":None,"name_en":None,
-                     "source":a.get("source"),"match":"alias"})
-        seen.add(n)
+        if n and n not in seen:
+            rows.append({"number":n,"name_ko":None,"name_en":None,
+                         "source":a.get("source"),"match":"alias"})
+            seen.add(n)
 
-    if rows:
-        return jsonify(ok=True,results=rows[:20],
-                       strategy=["supabase_or_alias"],
-                       smart_search=bool(re.search(r"[가-힣]",q)),
-                       validation="smart-ko-name-search-v83")
+    if remote_rows: strategy.append("supabase_catalog")
+    if alias_rows: strategy.append("alias")
 
-    # 3) Korean -> English bridge. No KREAM/Danawa calls on the critical path.
+    # 3) Korean query -> English product-name expansion.
+    # IMPORTANT: run this even when one Korean catalog match already exists,
+    # because there may be other LEGO sets with the same word in their English name.
     translated_query=None
-    if re.search(r"[가-힣]",q):
-        fb=_translated_korean_fallback(q)
-        translated_query=fb.get("translated_query")
-        rows=fb.get("results") or []
-        if rows:
-            return jsonify(ok=True,results=rows[:20],
-                           translated_query=translated_query,
-                           strategy=["translated_name_fast"],
-                           smart_search=True,
-                           validation="smart-ko-name-search-v83")
+    if is_korean:
+        translated_query=_translate_ko_to_en(q)
+        if translated_query:
+            for item in _brickset_name_candidates(translated_query,20):
+                n=str(item.get("number") or "").split("-")[0]
+                if not n or n in seen:
+                    # Fill missing English title on an existing Korean result.
+                    for row in rows:
+                        if str(row.get("number"))==n and not row.get("name_en"):
+                            row["name_en"]=item.get("name")
+                    continue
+                rows.append({
+                    "number":n,
+                    "name_ko":None,
+                    "name_en":item.get("name"),
+                    "source":f"영문 제품명 연결: {translated_query}",
+                    "match":"translated_name",
+                    "year":item.get("year"),
+                    "theme":item.get("theme")
+                })
+                seen.add(n)
+            if any(x.get("match")=="translated_name" for x in rows):
+                strategy.append("translated_name")
 
-    # 4) Do NOT fall through to slow domestic crawling here.
-    return jsonify(ok=True,results=[],
+    # Prefer Korean exact/contains matches, then English translated-name matches,
+    # then newest sets. No slow KREAM/Danawa crawling here.
+    nq=_alias_norm(q)
+    rows.sort(key=lambda x:(
+        0 if x.get("name_ko") and nq in _alias_norm(x.get("name_ko")) else 1,
+        0 if x.get("match")=="translated_name" else 1,
+        -(int(x.get("year") or 0)),
+        str(x.get("number") or "")
+    ))
+
+    return jsonify(ok=True,results=rows[:20],
                    translated_query=translated_query,
-                   strategy=["fast_no_match"],
-                   smart_search=bool(re.search(r"[가-힣]",q)),
-                   validation="smart-ko-name-search-v83")
+                   strategy=strategy,
+                   smart_search=is_korean,
+                   validation="smart-ko-name-search-v85")
 @app.get("/api/kr-fast/<number>")
 def api_kr_fast(number):
     n=str(number).strip().split("-")[0]
@@ -773,7 +802,7 @@ def api_kr_fast(number):
     raw_price_source=(src_verified if verified.get("price") is not None
                       else src_stored if stored.get("price_krw") is not None else None)
 
-    # v83 precedence repair:
+    # v85 precedence repair:
     # A trusted repo/official catalog price is newer authority than stale Supabase provenance.
     # Never allow an old KREAM provenance row to relabel a verified official price.
     if verified.get("price") is not None:
@@ -792,7 +821,7 @@ def api_kr_fast(number):
     def ptype(src):
         return "official_msrp" if src=="LEGO Korea" else "release_price"
 
-    # v83: a cached price does not imply that the Korean product name is known.
+    # v85: a cached price does not imply that the Korean product name is known.
     # Fill a missing name from strict exact-number domestic detail pages.
     if not name and not fast_only:
         domestic_name=_domestic_kr_name_lookup(n)
@@ -800,13 +829,13 @@ def api_kr_fast(number):
             name=domestic_name.get("name_ko")
             name_source=domestic_name.get("source") or "국내 표기"
 
-    # v83 fast-only mode: return cached/local data immediately and never crawl.
+    # v85 fast-only mode: return cached/local data immediately and never crawl.
     if fast_only:
         resolved_type=(ptype(price_source) if price is not None and price_source else None)
         return jsonify(ok=True,number=n,name_ko=name,price=price,currency="KRW",
                        name_source=name_source,price_source=price_source,
                        price_type=resolved_type,cache_hit=bool(name or price is not None),
-                       fast_only=True,validation="cache-first-v83")
+                       fast_only=True,validation="cache-first-v85")
 
     # Fast path: cached/verified KR price already exists.
     if price is not None and price_source is not None:
@@ -817,7 +846,7 @@ def api_kr_fast(number):
         return jsonify(ok=True,number=n,name_ko=name,price=price,currency="KRW",
                        name_source=name_source,price_source=price_source,
                        price_type=resolved_type,cache_hit=True,
-                       validation="cache-first-v83")
+                       validation="cache-first-v85")
 
     # Cache miss: use existing enrichment once; it persists successful results to Supabase.
     item,diag=_merge_kr_sources(n)
@@ -825,7 +854,7 @@ def api_kr_fast(number):
         resolved_name_source=item.get("name_source") or name_source
         resolved_price_source=item.get("price_source")
         resolved_price_type=item.get("price_type")
-        # v83: every successful discovery becomes reusable catalog data.
+        # v85: every successful discovery becomes reusable catalog data.
         # Only already-filtered/trusted metadata from _merge_kr_sources reaches this point.
         if sb_enabled():
             sb_upsert([{"set_number":n,
@@ -840,11 +869,11 @@ def api_kr_fast(number):
                        name_source=resolved_name_source,
                        price_source=resolved_price_source,
                        price_type=resolved_price_type,cache_hit=False,
-                       diagnostics=diag,validation="cache-first-v83")
+                       diagnostics=diag,validation="cache-first-v85")
 
     return jsonify(ok=True,number=n,name_ko=name,price=None,currency="KRW",
                    name_source=name_source,price_source=None,price_type=None,
-                   cache_hit=False,validation="cache-first-v83")
+                   cache_hit=False,validation="cache-first-v85")
 
 @app.get("/api/kr-catalog")
 def kr_catalog():
@@ -896,7 +925,7 @@ def auto_sync():
         except Exception as e:
             return n,None,type(e).__name__
 
-    # v83: parallel requests prevent N owned sets from turning into an N*timeout request.
+    # v85: parallel requests prevent N owned sets from turning into an N*timeout request.
     targets=nums[:100]
     if targets:
         with ThreadPoolExecutor(max_workers=min(6,len(targets))) as ex:
@@ -1128,7 +1157,7 @@ def _kream_recent_trade_lookup(number):
                             "source":"KREAM 최근 체결가",
                             "source_url":d.url,
                             "checked_at":time.strftime("%Y-%m-%d"),
-                            "validation":"completed-trades-visible-row-v83"
+                            "validation":"completed-trades-visible-row-v85"
                         }
                 except Exception:
                     continue
@@ -1229,7 +1258,7 @@ def api_kream_market_batch():
                     failed.append(n)
     return jsonify(ok=True,items=items,failed=failed,
                    requested=len(nums),updated=len(items),
-                   validation="kream-recent-trade-v83")
+                   validation="kream-recent-trade-v85")
 
 def _danawa_kr_lookup(number):
     """Exact set-number Danawa detail lookup. Search page is discovery only."""
@@ -1327,7 +1356,7 @@ def _merge_kr_sources(number):
         else:
             source="LEGO Korea 조립설명서"
         source_url=instruction_url or source_url
-    # v83: keep name provenance and price provenance independent.
+    # v85: keep name provenance and price provenance independent.
     if official.get("name_ko"): name_source="LEGO Korea 공식"
     elif instruction_name: name_source="LEGO Korea 조립설명서"
     elif verified.get("name_ko"): name_source=verified.get("source") or "검증 한국 카탈로그"
@@ -1361,7 +1390,7 @@ def _merge_kr_sources(number):
     diag={"official":usable(official),"instructions":bool(instruction_name),
           "kream":usable(kream),"brickmecha":usable(brick),"danawa":usable(danawa),
           "stored":bool(stored.get("name_ko") or stored.get("price_krw") is not None),
-          "verified":bool(verified),"validation":"brickset-ko-overlay-v83"}
+          "verified":bool(verified),"validation":"brickset-ko-overlay-v85"}
     return item,diag
 
 def _kr_catalog_fallback(number):
@@ -1652,7 +1681,7 @@ def _clean_lego_title(s, number):
     return s if 1 < len(s) < 120 else None
 
 def _instruction_name(number):
-    """v83: Render->LEGO is HTTP 403. Use the verified indexed KR catalog instead."""
+    """v85: Render->LEGO is HTTP 403. Use the verified indexed KR catalog instead."""
     n=str(number).strip().split("-")[0]
     row=KR_CATALOG.get(n) if "KR_CATALOG" in globals() else None
     if row and row.get("name_ko"):
@@ -1748,7 +1777,7 @@ def api_kr_name_diagnostic(number):
     else:
         extract_error=None
     return jsonify(ok=True,number=n,checks=checks,extracted=extracted,
-                   extract_error=extract_error,validation="kr-name-diagnostic-v83")
+                   extract_error=extract_error,validation="kr-name-diagnostic-v85")
 
 
 @app.post("/api/kr-cleanup")
@@ -1865,7 +1894,7 @@ def relation_put(primary_number, related_number, relation_type, source="Brickset
         return False
 
 _V60_SEEDED=False
-def _v83_seed_official_catalog():
+def _v85_seed_official_catalog():
     global _V60_SEEDED
     if _V60_SEEDED or not sb_enabled():
         return
@@ -1890,8 +1919,8 @@ def _v83_seed_official_catalog():
         pass
 
 @app.before_request
-def _v83_bootstrap_catalog():
-    _v83_seed_official_catalog()
+def _v85_bootstrap_catalog():
+    _v85_seed_official_catalog()
 
 
 @app.get("/api/relations/<number>")
