@@ -1,5 +1,6 @@
-import os, time,json,time,requests,re,html as html_lib
+import os, time,json,time,requests,re,html as html_lib,threading,math,urllib.parse,hmac,hashlib,base64,secrets
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone, timedelta
 from flask import Flask,request,jsonify,send_from_directory
 app=Flask(__name__); KEY=os.environ.get("BRICKSET_API_KEY","")
 API="https://brickset.com/api/v3.asmx"
@@ -35,7 +36,7 @@ def api_kr_overlay(number):
     if not item:
         return jsonify(ok=False,number=n,name_ko=None,price=None,currency="KRW",
                        name_source=None,price_source=None,
-                       diagnostics=diag,validation="brickset-ko-overlay-v85")
+                       diagnostics=diag,validation="brickset-ko-overlay-v87")
 
     name=item.get("name_ko")
     price=item.get("price")
@@ -53,7 +54,7 @@ def api_kr_overlay(number):
     return jsonify(ok=True,number=n,name_ko=name,price=price,
                    currency=item.get("currency") or "KRW",
                    name_source=name_source,price_source=price_source,price_type=price_type,
-                   diagnostics=diag,validation="brickset-ko-overlay-v85")
+                   diagnostics=diag,validation="brickset-ko-overlay-v87")
 
 
 @app.post("/api/kr-catalog-import")
@@ -121,7 +122,7 @@ def api_kr_catalog_import():
             failed.append({"number":str(raw.get("number") or raw.get("set_number") or ""),
                            "error":str(e)})
     return jsonify(ok=(len(failed)==0),imported=len(imported),failed=len(failed),
-                   results=imported,errors=failed,validation="bulk-catalog-v85")
+                   results=imported,errors=failed,validation="bulk-catalog-v87")
 
 @app.post("/api/kr-name-sync")
 def api_kr_name_sync():
@@ -175,7 +176,7 @@ def health():
         cache_items=len(CACHE),
         kr_catalog_items=len(load_kr_catalog()) if "load_kr_catalog" in globals() else 0,
         supabase_configured=bool(os.environ.get("SUPABASE_URL","") and os.environ.get("SUPABASE_SERVICE_KEY","")),
-        version="v85"
+        version="v87"
     )
 @app.get("/api/search")
 def search():
@@ -233,7 +234,7 @@ def search():
         d["matches"]=len(ranked)
         d["search_mode"]="product_name"
 
-    # v85: when the user enters an exact set number, keep that set as the
+    # v87: when the user enters an exact set number, keep that set as the
     # primary result and classify only evidence-backed extra hits as relations.
     exact_num=re.sub(r"[^0-9]","",q)
     if exact_num and numeric_query:
@@ -559,10 +560,25 @@ def _discover_korean_query(query):
 
 KO_TRANSLATE_CACHE={}
 KO_FAST_TERM_HINTS={
-    # Common Korean transliterations used in LEGO product names.
-    # These avoid an external translation request on the hot search path.
-    "생텀":"sanctum",
-    "생토럼":"sanctorum",
+    # Common LEGO franchise/product words. These are only query bridges.
+    "생텀":"sanctum", "생토럼":"sanctorum",
+    "어벤져스":"avengers", "아이언맨":"iron man", "스파이더맨":"spider man",
+    "배트맨":"batman", "슈퍼맨":"superman", "원더우먼":"wonder woman",
+    "캡틴 아메리카":"captain america", "헐크":"hulk", "토르":"thor",
+    "엑스맨":"x men", "마블":"marvel", "스타워즈":"star wars",
+    "해리포터":"harry potter", "반지의 제왕":"lord of the rings",
+    "리븐델":"rivendell", "바라드두르":"barad dur", "듄":"dune",
+    "쥬라기":"jurassic", "디즈니":"disney", "미키":"mickey", "미니":"minnie",
+    "마인크래프트":"minecraft", "닌자고":"ninjago", "소닉":"sonic",
+    "트랜스포머":"transformers", "옵티머스 프라임":"optimus prime",
+    "백 투 더 퓨처":"back to the future", "타이타닉":"titanic",
+    "에펠탑":"eiffel tower", "콩코드":"concorde", "포르쉐":"porsche",
+    "페라리":"ferrari", "람보르기니":"lamborghini", "메르세데스":"mercedes",
+    "포뮬러 1":"formula 1", "포뮬러원":"formula 1", "에프원":"f1",
+    "테크닉":"technic", "아이콘":"icons", "아이디어":"ideas",
+    "아키텍처":"architecture", "크리에이터":"creator", "시티":"city",
+    "프렌즈":"friends", "캐슬":"castle", "해적":"pirate", "우주":"space",
+    "기차":"train", "자동차":"car", "타워":"tower", "성":"castle"
 }
 
 def _translate_ko_to_en(query):
@@ -579,6 +595,18 @@ def _translate_ko_to_en(query):
         translated=KO_FAST_TERM_HINTS[ck]
         KO_TRANSLATE_CACHE[ck]=translated
         return translated
+    # Phrase substitution handles mixed queries such as "어벤져스 타워".
+    hinted=ck
+    changed=False
+    for ko,en in sorted(KO_FAST_TERM_HINTS.items(),key=lambda kv:len(kv[0]),reverse=True):
+        if ko in hinted:
+            hinted=hinted.replace(ko," "+en+" ")
+            changed=True
+    if changed:
+        hinted=re.sub(r"\s+"," ",hinted).strip()
+        if hinted and re.search(r"[A-Za-z]",hinted) and not re.search(r"[가-힣]",hinted):
+            KO_TRANSLATE_CACHE[ck]=hinted
+            return hinted
     translated=None
     try:
         r=requests.get(
@@ -660,7 +688,7 @@ def api_kr_name_search():
     q=(request.args.get("q") or "").strip()
     ql=q.lower()
     if not q:
-        return jsonify(ok=True,results=[],validation="smart-ko-name-search-v85")
+        return jsonify(ok=True,results=[],validation="smart-ko-name-search-v87")
 
     rows=[]; seen=set(); strategy=[]
     is_korean=bool(re.search(r"[가-힣]",q))
@@ -722,7 +750,22 @@ def api_kr_name_search():
     if remote_rows: strategy.append("supabase_catalog")
     if alias_rows: strategy.append("alias")
 
-    # 3) Korean query -> English product-name expansion.
+    # 3) Full master-catalog Korean/English aliases already stored in Supabase.
+    try:
+        for m in master_name_search(q,20):
+            n=str(m.get("set_number") or "")
+            if n and n not in seen:
+                rows.append({"number":n,"name_ko":m.get("name_ko"),
+                             "name_en":m.get("name_en"),"source":"마스터 카탈로그",
+                             "match":"master_catalog","year":m.get("year"),
+                             "theme":m.get("theme")})
+                seen.add(n)
+        if any(x.get("match")=="master_catalog" for x in rows):
+            strategy.append("master_catalog")
+    except Exception:
+        pass
+
+    # 4) Korean query -> English product-name expansion.
     # IMPORTANT: run this even when one Korean catalog match already exists,
     # because there may be other LEGO sets with the same word in their English name.
     translated_query=None
@@ -764,7 +807,7 @@ def api_kr_name_search():
                    translated_query=translated_query,
                    strategy=strategy,
                    smart_search=is_korean,
-                   validation="smart-ko-name-search-v85")
+                   validation="smart-ko-name-search-v87")
 @app.get("/api/kr-fast/<number>")
 def api_kr_fast(number):
     n=str(number).strip().split("-")[0]
@@ -802,7 +845,7 @@ def api_kr_fast(number):
     raw_price_source=(src_verified if verified.get("price") is not None
                       else src_stored if stored.get("price_krw") is not None else None)
 
-    # v85 precedence repair:
+    # v87 precedence repair:
     # A trusted repo/official catalog price is newer authority than stale Supabase provenance.
     # Never allow an old KREAM provenance row to relabel a verified official price.
     if verified.get("price") is not None:
@@ -821,7 +864,7 @@ def api_kr_fast(number):
     def ptype(src):
         return "official_msrp" if src=="LEGO Korea" else "release_price"
 
-    # v85: a cached price does not imply that the Korean product name is known.
+    # v87: a cached price does not imply that the Korean product name is known.
     # Fill a missing name from strict exact-number domestic detail pages.
     if not name and not fast_only:
         domestic_name=_domestic_kr_name_lookup(n)
@@ -829,13 +872,13 @@ def api_kr_fast(number):
             name=domestic_name.get("name_ko")
             name_source=domestic_name.get("source") or "국내 표기"
 
-    # v85 fast-only mode: return cached/local data immediately and never crawl.
+    # v87 fast-only mode: return cached/local data immediately and never crawl.
     if fast_only:
         resolved_type=(ptype(price_source) if price is not None and price_source else None)
         return jsonify(ok=True,number=n,name_ko=name,price=price,currency="KRW",
                        name_source=name_source,price_source=price_source,
                        price_type=resolved_type,cache_hit=bool(name or price is not None),
-                       fast_only=True,validation="cache-first-v85")
+                       fast_only=True,validation="cache-first-v87")
 
     # Fast path: cached/verified KR price already exists.
     if price is not None and price_source is not None:
@@ -846,7 +889,7 @@ def api_kr_fast(number):
         return jsonify(ok=True,number=n,name_ko=name,price=price,currency="KRW",
                        name_source=name_source,price_source=price_source,
                        price_type=resolved_type,cache_hit=True,
-                       validation="cache-first-v85")
+                       validation="cache-first-v87")
 
     # Cache miss: use existing enrichment once; it persists successful results to Supabase.
     item,diag=_merge_kr_sources(n)
@@ -854,7 +897,7 @@ def api_kr_fast(number):
         resolved_name_source=item.get("name_source") or name_source
         resolved_price_source=item.get("price_source")
         resolved_price_type=item.get("price_type")
-        # v85: every successful discovery becomes reusable catalog data.
+        # v87: every successful discovery becomes reusable catalog data.
         # Only already-filtered/trusted metadata from _merge_kr_sources reaches this point.
         if sb_enabled():
             sb_upsert([{"set_number":n,
@@ -869,11 +912,11 @@ def api_kr_fast(number):
                        name_source=resolved_name_source,
                        price_source=resolved_price_source,
                        price_type=resolved_price_type,cache_hit=False,
-                       diagnostics=diag,validation="cache-first-v85")
+                       diagnostics=diag,validation="cache-first-v87")
 
     return jsonify(ok=True,number=n,name_ko=name,price=None,currency="KRW",
                    name_source=name_source,price_source=None,price_type=None,
-                   cache_hit=False,validation="cache-first-v85")
+                   cache_hit=False,validation="cache-first-v87")
 
 @app.get("/api/kr-catalog")
 def kr_catalog():
@@ -918,6 +961,7 @@ def auto_sync():
                 "year":item.get("year"),
                 "theme":item.get("theme"),
                 "pieces":item.get("pieces"),
+                "launchDate":item.get("launchDate"),
                 "image":(item.get("image") or {}).get("imageURL") or (item.get("image") or {}).get("thumbnailURL"),
                 "LEGOCom":item.get("LEGOCom"),
                 "kr":k or None
@@ -925,7 +969,7 @@ def auto_sync():
         except Exception as e:
             return n,None,type(e).__name__
 
-    # v85: parallel requests prevent N owned sets from turning into an N*timeout request.
+    # v87: parallel requests prevent N owned sets from turning into an N*timeout request.
     targets=nums[:100]
     if targets:
         with ThreadPoolExecutor(max_workers=min(6,len(targets))) as ex:
@@ -1087,83 +1131,281 @@ KREAM_MODEL_ALIASES={
     "5009609":["6601584"],
 }
 
-def _kream_recent_trade_lookup(number):
-    """Strict KREAM completed-trade parser with alternate model-number support."""
-    n=str(number).strip().split("-")[0]
-    candidates=[n]+[x for x in KREAM_MODEL_ALIASES.get(n,[]) if x!=n]
-    headers={
+KREAM_TRADES_TABLE="lego_kream_trades"
+KREAM_MAX_HISTORY_PAGES=40
+
+
+def _kream_headers(referer=None, accept_json=False):
+    h={
         "User-Agent":"Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/143 Mobile Safari/537.36",
-        "Accept-Language":"ko-KR,ko;q=0.9"
+        "Accept-Language":"ko-KR,ko;q=0.9,en;q=0.7"
     }
+    if accept_json: h["Accept"]="application/json, text/plain, */*"
+    if referer: h["Referer"]=referer
+    return h
 
-    def valid_trade_price(price):
-        if price is None or price < 5000 or price > 10000000:
-            return False
+
+def _parse_iso_utc(value):
+    if not value: return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z","+00:00")).astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def _kst_display_from_iso(value):
+    dt=_parse_iso_utc(value)
+    if not dt: return None
+    return dt.astimezone(timezone(timedelta(hours=9))).strftime("%Y-%m-%d %H:%M")
+
+
+def _fallback_trade_time(text):
+    """Convert KREAM public-page date text to an ISO timestamp when possible."""
+    raw=str(text or "").strip()
+    kst=timezone(timedelta(hours=9))
+    now=datetime.now(kst)
+    m=re.fullmatch(r"(\d{2})/(\d{2})/(\d{2})",raw)
+    if m:
         try:
-            row=(load_kr_catalog().get(n) or {})
-            ref=_safe_price(row.get("price"))
-            if ref and not (ref*0.03 <= price <= ref*10):
-                return False
-        except Exception:
-            pass
-        return True
+            return datetime(2000+int(m.group(1)),int(m.group(2)),int(m.group(3)),12,0,tzinfo=kst).astimezone(timezone.utc).isoformat().replace("+00:00","Z")
+        except Exception: return None
+    m=re.fullmatch(r"(\d+)\s*분\s*전",raw)
+    if m: return (now-timedelta(minutes=int(m.group(1)))).astimezone(timezone.utc).isoformat().replace("+00:00","Z")
+    m=re.fullmatch(r"(\d+)\s*시간\s*전",raw)
+    if m: return (now-timedelta(hours=int(m.group(1)))).astimezone(timezone.utc).isoformat().replace("+00:00","Z")
+    m=re.fullmatch(r"(\d+)\s*일\s*전",raw)
+    if m: return (now-timedelta(days=int(m.group(1)))).astimezone(timezone.utc).isoformat().replace("+00:00","Z")
+    return None
 
-    for query_number in candidates:
+
+def _kream_product_context(number):
+    """Find exact KREAM product detail page and product_id for a LEGO model number."""
+    n=str(number).strip().split("-")[0]
+    accepted=[n]+[x for x in KREAM_MODEL_ALIASES.get(n,[]) if x!=n]
+    for query_number in accepted:
         search=f"https://kream.co.kr/search?keyword={query_number}"
         try:
-            r=requests.get(search,headers=headers,timeout=10)
-            if not r.ok or _bad_page_text(r.text[:5000]):
+            r=requests.get(search,headers=_kream_headers(),timeout=10)
+            if not r.ok or _bad_page_text((r.text or "")[:5000]):
                 continue
-            links=_extract_detail_links(r.text,r.url,query_number,"kream.co.kr")
-
-            for u in links[:5]:
+            for u in _extract_detail_links(r.text,r.url,query_number,"kream.co.kr")[:6]:
                 try:
-                    d=requests.get(u,headers=headers,timeout=10)
-                    if not d.ok:
-                        continue
+                    d=requests.get(u,headers=_kream_headers(u),timeout=10)
+                    if not d.ok: continue
                     text=_decode_jsonish(d.text or "")
-
-                    # The detail page must contain either the canonical LEGO set number
-                    # or the accepted KREAM/retail alternate model number used to find it.
-                    accepted=[n]+KREAM_MODEL_ALIASES.get(n,[])
                     matched=next((x for x in accepted if re.search(rf"(?<!\d){re.escape(x)}(?!\d)",text)),None)
-                    if not matched:
-                        continue
-
-                    plain=re.sub(r"<[^>]+>"," ",text)
-                    plain=re.sub(r"&nbsp;"," ",plain,flags=re.I)
-                    plain=re.sub(r"\s+"," ",plain)
-
-                    price=None
-                    for m in re.finditer("체결 거래",plain):
-                        area=plain[m.start():m.start()+4500]
-                        if "거래가" not in area[:900]:
-                            continue
-                        pm=re.search(r"([1-9][0-9]{0,2}(?:,[0-9]{3})+)\s*원",area)
-                        if not pm:
-                            continue
-                        candidate=int(pm.group(1).replace(",",""))
-                        if valid_trade_price(candidate):
-                            price=candidate
-                            break
-
-                    if price is not None:
-                        return {
-                            "number":n,
-                            "model_number":matched,
-                            "price":price,
-                            "currency":"KRW",
-                            "price_type":"recent_trade",
-                            "source":"KREAM 최근 체결가",
-                            "source_url":d.url,
-                            "checked_at":time.strftime("%Y-%m-%d"),
-                            "validation":"completed-trades-visible-row-v85"
-                        }
+                    if not matched: continue
+                    pm=re.search(r"/products/(\d+)",d.url or u)
+                    if not pm:
+                        pm=re.search(r'"productID"\s*:\s*"?(\d+)"?',text,re.I)
+                    if not pm:
+                        pm=re.search(r'"product_id"\s*:\s*(\d+)',text,re.I)
+                    if not pm: continue
+                    return {
+                        "number":n,"model_number":matched,"product_id":int(pm.group(1)),
+                        "source_url":d.url or u,"html":d.text or ""
+                    }
                 except Exception:
                     continue
         except Exception:
             continue
     return None
+
+
+def _kream_trade_table_ready():
+    if not sb_enabled(): return False
+    try:
+        r=requests.get(f"{SUPABASE_URL}/rest/v1/{KREAM_TRADES_TABLE}",headers=_sb_headers(),
+                       params={"select":"id","limit":"1"},timeout=4)
+        return r.ok
+    except Exception:
+        return False
+
+
+def _kream_latest_stored_trade_at(number):
+    if not _kream_trade_table_ready(): return None
+    n=re.sub(r"[^0-9]","",str(number))
+    try:
+        r=requests.get(f"{SUPABASE_URL}/rest/v1/{KREAM_TRADES_TABLE}",headers=_sb_headers(),
+                       params={"set_number":f"eq.{n}","select":"trade_at","order":"trade_at.desc","limit":"1"},timeout=5)
+        if r.ok and r.json(): return r.json()[0].get("trade_at")
+    except Exception: pass
+    return None
+
+
+def _kream_trade_upsert_many(rows):
+    if not rows or not _kream_trade_table_ready(): return 0
+    saved=0
+    for i in range(0,len(rows),200):
+        chunk=rows[i:i+200]
+        try:
+            r=requests.post(
+                f"{SUPABASE_URL}/rest/v1/{KREAM_TRADES_TABLE}",
+                headers=_sb_headers("resolution=merge-duplicates,return=minimal"),
+                params={"on_conflict":"set_number,kream_product_id,trade_at,price_krw,option_name"},
+                json=chunk,timeout=12)
+            if r.ok: saved+=len(chunk)
+        except Exception:
+            pass
+    return saved
+
+
+def _kream_stored_trades(number,limit=5000):
+    if not _kream_trade_table_ready(): return []
+    n=re.sub(r"[^0-9]","",str(number))
+    try:
+        r=requests.get(f"{SUPABASE_URL}/rest/v1/{KREAM_TRADES_TABLE}",headers=_sb_headers(),
+                       params={"set_number":f"eq.{n}",
+                               "select":"set_number,kream_product_id,model_number,price_krw,option_name,trade_at,source_url",
+                               "order":"trade_at.asc","limit":str(min(max(int(limit),1),10000))},timeout=10)
+        return r.json() if r.ok else []
+    except Exception: return []
+
+
+def _kream_public_html_trades(ctx):
+    """Fallback to the public visible completed-trade rows when the JSON sales API is unavailable."""
+    text=_decode_jsonish(ctx.get("html") or "")
+    plain=re.sub(r"<[^>]+>"," ",text)
+    plain=re.sub(r"&nbsp;"," ",plain,flags=re.I)
+    plain=re.sub(r"\s+"," ",plain)
+    pos=plain.find("체결 거래")
+    if pos<0: return []
+    area=plain[pos:pos+6000]
+    rows=[]
+    for m in re.finditer(r"([1-9][0-9]{0,2}(?:,[0-9]{3})+)\s*원\s*((?:\d{2}/\d{2}/\d{2})|(?:\d+\s*(?:분|시간|일)\s*전))",area):
+        try: price=int(m.group(1).replace(",",""))
+        except Exception: continue
+        trade_at=_fallback_trade_time(m.group(2))
+        if not trade_at: continue
+        rows.append({
+            "set_number":ctx["number"],"kream_product_id":ctx["product_id"],
+            "model_number":ctx.get("model_number"),"price_krw":price,"option_name":"ONE SIZE",
+            "trade_at":trade_at,"source_url":ctx.get("source_url")
+        })
+    rows.sort(key=lambda x:x["trade_at"],reverse=True)
+    return rows
+
+
+def _kream_fetch_sales(ctx,full_history=True):
+    """Fetch completed transactions. Initial sync walks all pages; later sync stops at newest stored trade."""
+    pid=ctx["product_id"]
+    detail=ctx.get("source_url") or f"https://kream.co.kr/products/{pid}"
+    stop_at=_parse_iso_utc(_kream_latest_stored_trade_at(ctx["number"])) if full_history else None
+    rows=[]; complete=True; used_api=False; cursor=1; pages=0
+    while cursor and pages<KREAM_MAX_HISTORY_PAGES:
+        pages+=1
+        try:
+            r=requests.get(f"https://kream.co.kr/api/p/products/{pid}/sales",
+                           params={"cursor":cursor,"per_page":50,"sort":"date_created[desc]"},
+                           headers=_kream_headers(detail,True),timeout=10)
+            if not r.ok: raise RuntimeError(f"http {r.status_code}")
+            data=r.json() or {}; used_api=True
+        except Exception:
+            complete=False
+            if not rows:
+                rows=_kream_public_html_trades(ctx)
+            break
+        items=data.get("items") or []
+        if not items: break
+        reached_old=False
+        for item in items:
+            trade_at=item.get("date_created")
+            dt=_parse_iso_utc(trade_at)
+            if not dt: continue
+            if stop_at and dt<=stop_at:
+                reached_old=True
+                continue
+            try: price=int(round(float(item.get("price") or 0)))
+            except Exception: price=0
+            if price<1000 or price>10000000: continue
+            option=str(item.get("option") or ((item.get("product_option") or {}).get("name_display")) or "")
+            rows.append({
+                "set_number":ctx["number"],"kream_product_id":pid,
+                "model_number":ctx.get("model_number"),"price_krw":price,
+                "option_name":option,"trade_at":trade_at,"source_url":detail
+            })
+        if reached_old: break
+        nxt=data.get("next_cursor")
+        if not full_history or not nxt: break
+        cursor=nxt
+    if pages>=KREAM_MAX_HISTORY_PAGES and cursor:
+        complete=False
+    rows.sort(key=lambda x:x["trade_at"],reverse=True)
+    return rows,complete,used_api
+
+
+def _kream_fetch_chart(ctx):
+    pid=ctx["product_id"]
+    detail=ctx.get("source_url") or f"https://kream.co.kr/products/{pid}"
+    try:
+        r=requests.get(f"https://kream.co.kr/api/p/products/{pid}/chart",
+                       headers=_kream_headers(detail,True),timeout=10)
+        if not r.ok: return {}
+        d=r.json() or {}; out={}
+        for block in d.get("charts") or []:
+            span=str(block.get("span") or "")
+            if span not in ("1m","3m","6m","1y","all"): continue
+            arr=[]
+            for p in block.get("data") or []:
+                try: val=int(round(float(p.get("value") or 0)))
+                except Exception: val=0
+                t=str(p.get("time") or "")
+                if t and val>0: arr.append({"time":t,"value":val})
+            out[span]=arr
+        return out
+    except Exception:
+        return {}
+
+
+def _chart_from_trades(trades):
+    """Fallback daily close-style chart from exact completed trades."""
+    daily={}
+    for row in trades:
+        dt=_parse_iso_utc(row.get("trade_at"))
+        if not dt: continue
+        day=dt.astimezone(timezone(timedelta(hours=9))).strftime("%Y-%m-%d")
+        # rows are chronological from DB; later trade on the same day replaces prior one.
+        daily[day]=int(row.get("price_krw") or 0)
+    all_data=[{"time":d+"T00:00:00+09:00","value":p} for d,p in sorted(daily.items()) if p>0]
+    if not all_data: return {}
+    now=datetime.now(timezone(timedelta(hours=9))).date()
+    spans={"all":all_data}
+    for key,days in (("1m",31),("3m",93),("6m",186),("1y",366)):
+        cutoff=now-timedelta(days=days)
+        spans[key]=[x for x in all_data if _parse_iso_utc(x["time"]).astimezone(timezone(timedelta(hours=9))).date()>=cutoff]
+    return spans
+
+
+def _kream_sync_market(number,full_history=True,include_chart=False):
+    n=str(number).strip().split("-")[0]
+    ctx=_kream_product_context(n)
+    if not ctx: return None
+    new_rows,complete,used_api=_kream_fetch_sales(ctx,full_history=full_history)
+    saved=_kream_trade_upsert_many(new_rows)
+    # Latest is from fresh fetch; if none, use existing stored history so evaluation stays unchanged.
+    stored=_kream_stored_trades(n,5000)
+    combined=stored+new_rows
+    uniq={}
+    for row in combined:
+        key=(str(row.get("trade_at")),int(row.get("price_krw") or 0),str(row.get("option_name") or ""))
+        uniq[key]=row
+    trades=sorted(uniq.values(),key=lambda x:str(x.get("trade_at") or ""))
+    if not trades: return None
+    latest=trades[-1]
+    charts=(_kream_fetch_chart(ctx) or _chart_from_trades(trades)) if include_chart else {}
+    return {
+        "number":n,"model_number":ctx.get("model_number"),"product_id":ctx.get("product_id"),
+        "price":int(latest.get("price_krw") or 0),"currency":"KRW",
+        "price_type":"recent_trade","source":"KREAM 최근 체결가","source_url":ctx.get("source_url"),
+        "trade_at":latest.get("trade_at"),"trade_date":_kst_display_from_iso(latest.get("trade_at")),
+        "history_added":saved,"history_complete":bool(complete and used_api),
+        "trade_count":len(trades),"charts":charts,
+        "validation":"kream-sales-api-v87" if used_api else "kream-public-html-v87"
+    }
+
+
+def _kream_recent_trade_lookup(number):
+    return _kream_sync_market(number,full_history=False,include_chart=False)
 
 
 PRICE_HISTORY_TABLE="lego_price_history"
@@ -1234,31 +1476,50 @@ def api_kream_market_batch():
     for x in raw:
         n=re.sub(r"[^0-9]","",str(x))
         if n and n not in nums: nums.append(n)
-    # Small batches are deliberate: faster response and less pressure on KREAM.
     nums=nums[:8]
     items={}; failed=[]
     if nums:
-        with ThreadPoolExecutor(max_workers=min(4,len(nums))) as ex:
-            futs={ex.submit(_kream_recent_trade_lookup,n):n for n in nums}
+        with ThreadPoolExecutor(max_workers=min(3,len(nums))) as ex:
+            futs={ex.submit(_kream_sync_market,n,True,False):n for n in nums}
             for fut in as_completed(futs):
                 n=futs[fut]
-                try:
-                    row=fut.result()
-                except Exception:
-                    row=None
-                if row:
-                    items[n]=row
-                    price_history_put(
-                        n,row.get("price"),
-                        row.get("source") or "KREAM 최근 체결가",
-                        row.get("source_url"),
-                        row.get("checked_at")
-                    )
-                else:
-                    failed.append(n)
+                try: row=fut.result()
+                except Exception: row=None
+                if row: items[n]=row
+                else: failed.append(n)
     return jsonify(ok=True,items=items,failed=failed,
                    requested=len(nums),updated=len(items),
-                   validation="kream-recent-trade-v85")
+                   trade_table_ready=_kream_trade_table_ready(),
+                   validation="kream-full-history-v87")
+
+@app.get("/api/kream-history/<number>")
+def api_kream_history(number):
+    n=re.sub(r"[^0-9]","",str(number))
+    if not n: return jsonify(ok=False,error="invalid set number"),400
+    sync=request.args.get("sync")=="1"
+    live=None
+    if sync:
+        try: live=_kream_sync_market(n,True,True)
+        except Exception: live=None
+    trades=_kream_stored_trades(n,5000)
+    ctx=None; charts={}
+    if live:
+        charts=live.get("charts") or {}
+    else:
+        try:
+            ctx=_kream_product_context(n)
+            if ctx: charts=_kream_fetch_chart(ctx)
+        except Exception: charts={}
+    if not charts: charts=_chart_from_trades(trades)
+    recent=sorted(trades,key=lambda x:str(x.get("trade_at") or ""),reverse=True)[:100]
+    for row in recent:
+        row["trade_date"]=_kst_display_from_iso(row.get("trade_at"))
+    latest=recent[0] if recent else None
+    return jsonify(ok=True,number=n,items=recent,trade_count=len(trades),charts=charts,
+                   latest=latest,trade_table_ready=_kream_trade_table_ready(),
+                   history_complete=(live.get("history_complete") if live else None),
+                   validation="kream-history-v87")
+
 
 def _danawa_kr_lookup(number):
     """Exact set-number Danawa detail lookup. Search page is discovery only."""
@@ -1356,7 +1617,7 @@ def _merge_kr_sources(number):
         else:
             source="LEGO Korea 조립설명서"
         source_url=instruction_url or source_url
-    # v85: keep name provenance and price provenance independent.
+    # v87: keep name provenance and price provenance independent.
     if official.get("name_ko"): name_source="LEGO Korea 공식"
     elif instruction_name: name_source="LEGO Korea 조립설명서"
     elif verified.get("name_ko"): name_source=verified.get("source") or "검증 한국 카탈로그"
@@ -1390,7 +1651,7 @@ def _merge_kr_sources(number):
     diag={"official":usable(official),"instructions":bool(instruction_name),
           "kream":usable(kream),"brickmecha":usable(brick),"danawa":usable(danawa),
           "stored":bool(stored.get("name_ko") or stored.get("price_krw") is not None),
-          "verified":bool(verified),"validation":"brickset-ko-overlay-v85"}
+          "verified":bool(verified),"validation":"brickset-ko-overlay-v87"}
     return item,diag
 
 def _kr_catalog_fallback(number):
@@ -1681,7 +1942,7 @@ def _clean_lego_title(s, number):
     return s if 1 < len(s) < 120 else None
 
 def _instruction_name(number):
-    """v85: Render->LEGO is HTTP 403. Use the verified indexed KR catalog instead."""
+    """v87: Render->LEGO is HTTP 403. Use the verified indexed KR catalog instead."""
     n=str(number).strip().split("-")[0]
     row=KR_CATALOG.get(n) if "KR_CATALOG" in globals() else None
     if row and row.get("name_ko"):
@@ -1777,7 +2038,7 @@ def api_kr_name_diagnostic(number):
     else:
         extract_error=None
     return jsonify(ok=True,number=n,checks=checks,extracted=extracted,
-                   extract_error=extract_error,validation="kr-name-diagnostic-v85")
+                   extract_error=extract_error,validation="kr-name-diagnostic-v87")
 
 
 @app.post("/api/kr-cleanup")
@@ -1894,7 +2155,7 @@ def relation_put(primary_number, related_number, relation_type, source="Brickset
         return False
 
 _V60_SEEDED=False
-def _v85_seed_official_catalog():
+def _v87_seed_official_catalog():
     global _V60_SEEDED
     if _V60_SEEDED or not sb_enabled():
         return
@@ -1919,8 +2180,8 @@ def _v85_seed_official_catalog():
         pass
 
 @app.before_request
-def _v85_bootstrap_catalog():
-    _v85_seed_official_catalog()
+def _v87_bootstrap_catalog():
+    _v87_seed_official_catalog()
 
 
 @app.get("/api/relations/<number>")
@@ -1939,3 +2200,348 @@ def api_relations(number):
             pass
     return jsonify(ok=True,number=n,relations=rows)
 
+
+
+# =========================
+# v87 Master LEGO catalog
+# =========================
+MASTER_TABLE="lego_master_catalog"
+MASTER_STATE_TABLE="lego_catalog_sync_state"
+MASTER_FILTER_CACHE={"t":0,"themes":[],"years":[]}
+MASTER_OVERLAY_CACHE={"t":0,"data":{}}
+MASTER_SYNC_THREAD=None
+MASTER_SYNC_RUNTIME={"running":False,"message":"idle","last_result":None,"started_at":None}
+MASTER_SYNC_LOCK=threading.Lock()
+
+BL_CONSUMER_KEY=os.getenv("BRICKLINK_CONSUMER_KEY","")
+BL_CONSUMER_SECRET=os.getenv("BRICKLINK_CONSUMER_SECRET","")
+BL_TOKEN_VALUE=os.getenv("BRICKLINK_TOKEN_VALUE","")
+BL_TOKEN_SECRET=os.getenv("BRICKLINK_TOKEN_SECRET","")
+BL_BASE="https://api.bricklink.com/api/store/v1"
+
+def bricklink_configured():
+    return all([BL_CONSUMER_KEY,BL_CONSUMER_SECRET,BL_TOKEN_VALUE,BL_TOKEN_SECRET])
+
+def _master_headers(prefer=None):
+    return _sb_headers(prefer)
+
+def master_table_ready():
+    if not sb_enabled(): return False
+    try:
+        r=requests.get(f"{SUPABASE_URL}/rest/v1/{MASTER_TABLE}",headers=_master_headers(),
+                       params={"select":"set_number","limit":"1"},timeout=4)
+        return r.ok
+    except Exception:
+        return False
+
+def master_state_get(key,default=None):
+    if not sb_enabled(): return default
+    try:
+        r=requests.get(f"{SUPABASE_URL}/rest/v1/{MASTER_STATE_TABLE}",headers=_master_headers(),
+                       params={"select":"value","key":f"eq.{key}","limit":"1"},timeout=4)
+        if r.ok and r.json(): return r.json()[0].get("value",default)
+    except Exception: pass
+    return default
+
+def master_state_set(key,value):
+    if not sb_enabled(): return False
+    payload={"key":key,"value":value,"updated_at":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}
+    try:
+        r=requests.post(f"{SUPABASE_URL}/rest/v1/{MASTER_STATE_TABLE}",
+                        headers=_master_headers("resolution=merge-duplicates,return=minimal"),
+                        params={"on_conflict":"key"},json=payload,timeout=6)
+        return r.ok
+    except Exception: return False
+
+def _master_kr_overlays():
+    now=time.time()
+    if now-MASTER_OVERLAY_CACHE.get("t",0)<600:
+        return MASTER_OVERLAY_CACHE.get("data",{})
+    data={}
+    for n,row in load_kr_catalog().items():
+        data[str(n)]={"name_ko":(row or {}).get("name_ko"),"price_krw":(row or {}).get("price")}
+    if sb_enabled():
+        try:
+            r=requests.get(f"{SUPABASE_URL}/rest/v1/{SUPABASE_TABLE}",headers=_master_headers(),
+                           params={"select":"set_number,name_ko,price_krw","limit":"2000"},timeout=8)
+            if r.ok:
+                for row in r.json() or []:
+                    n=str(row.get("set_number") or "")
+                    if n:
+                        prev=data.get(n,{})
+                        data[n]={"name_ko":row.get("name_ko") or prev.get("name_ko"),
+                                 "price_krw":row.get("price_krw") if row.get("price_krw") is not None else prev.get("price_krw")}
+        except Exception: pass
+    MASTER_OVERLAY_CACHE.update({"t":now,"data":data})
+    return data
+
+def _master_row(item,overlays=None):
+    full=str(item.get("number") or "")
+    n=full.split("-")[0]
+    image=item.get("image") or {}
+    lego=item.get("LEGOCom") or {}
+    ext=item.get("extendedData") or {}
+    ov=(overlays or {}).get(n,{})
+    def retail(region):
+        try: return (lego.get(region) or {}).get("retailPrice")
+        except Exception: return None
+    return {
+        "set_number":n,"brickset_number":full,"set_id":item.get("setID"),
+        "name_en":item.get("name"),"name_ko":ov.get("name_ko"),
+        "theme":item.get("theme"),"subtheme":item.get("subtheme"),
+        "category":item.get("category"),"year":item.get("year"),
+        "pieces":item.get("pieces"),"minifigs":item.get("minifigs"),
+        "released":item.get("released"),"image_url":image.get("imageURL"),
+        "thumbnail_url":image.get("thumbnailURL"),"brickset_url":item.get("bricksetURL"),
+        "retail_us":retail("US"),"retail_uk":retail("UK"),"retail_de":retail("DE"),
+        "price_krw":ov.get("price_krw"),"launch_date":item.get("launchDate"),
+        "exit_date":item.get("exitDate"),"availability":item.get("availability"),
+        "description":ext.get("description"),"brickset_last_updated":item.get("lastUpdated"),
+        "updated_at":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())
+    }
+
+def master_upsert(rows):
+    if not rows or not sb_enabled(): return False
+    ok=True
+    for i in range(0,len(rows),200):
+        chunk=rows[i:i+200]
+        try:
+            r=requests.post(f"{SUPABASE_URL}/rest/v1/{MASTER_TABLE}",
+                headers=_master_headers("resolution=merge-duplicates,return=minimal"),
+                params={"on_conflict":"set_number"},json=chunk,timeout=20)
+            if not r.ok: ok=False
+        except Exception: ok=False
+    return ok
+
+def master_name_search(q,limit=20):
+    if not master_table_ready(): return []
+    raw=str(q or "").strip()
+    safe=re.sub(r"[^0-9A-Za-z가-힣 _-]"," ",raw).strip()
+    if not safe: return []
+    try:
+        r=requests.get(f"{SUPABASE_URL}/rest/v1/{MASTER_TABLE}",headers=_master_headers(),
+            params={"select":"set_number,name_en,name_ko,theme,year",
+                    "or":f"(name_ko.ilike.*{safe}*,name_en.ilike.*{safe}*,set_number.ilike.*{safe}*)",
+                    "limit":str(min(int(limit),50))},timeout=5)
+        return r.json() if r.ok else []
+    except Exception: return []
+
+def _brickset_years():
+    try:
+        r=requests.get(API+"/getYears",params={"apiKey":KEY,"theme":""},timeout=12)
+        if not r.ok: return []
+        years=[]
+        for row in r.json().get("years",[]) or []:
+            y=row.get("year") if isinstance(row,dict) else None
+            try: yi=int(y)
+            except Exception: continue
+            if yi not in years: years.append(yi)
+        return sorted(years,reverse=True)
+    except Exception: return []
+
+def _brickset_sync_page(params):
+    r=requests.get(API+"/getSets",params={"apiKey":KEY,"userHash":"","params":json.dumps(params)},timeout=25)
+    r.raise_for_status()
+    d=r.json()
+    if d.get("status")=="error":
+        raise RuntimeError(d.get("message") or "Brickset error")
+    return d
+
+def run_master_sync(max_calls=20):
+    if not KEY: return {"ok":False,"error":"BRICKSET_API_KEY missing"}
+    if not master_table_ready(): return {"ok":False,"error":"master_table_missing"}
+    max_calls=max(1,min(int(max_calls or 20),40))
+    if not MASTER_SYNC_LOCK.acquire(blocking=False):
+        return {"ok":False,"error":"sync_already_running"}
+    try:
+        calls=0; rows_saved=0
+        overlays=_master_kr_overlays()
+        initial_complete=bool(master_state_get("initial_complete",False))
+        if not initial_complete:
+            years=master_state_get("years",None)
+            if not isinstance(years,list) or not years:
+                years=_brickset_years()
+                if not years: return {"ok":False,"error":"years_lookup_failed"}
+                master_state_set("years",years)
+            yi=int(master_state_get("year_index",0) or 0)
+            page=int(master_state_get("page",1) or 1)
+            while calls<max_calls and yi<len(years):
+                year=int(years[yi])
+                d=_brickset_sync_page({"year":year,"pageSize":500,"pageNumber":page,"extendedData":1,"orderBy":"Number"})
+                calls+=1
+                sets=d.get("sets",[]) or []
+                rows=[_master_row(x,overlays) for x in sets if x.get("number")]
+                if rows:
+                    master_upsert(rows); rows_saved+=len(rows)
+                matches=int(d.get("matches") or len(sets))
+                pages=max(1,math.ceil(matches/500))
+                MASTER_SYNC_RUNTIME["message"]=f"{year}년 {page}/{pages} 페이지 동기화"
+                if page>=pages:
+                    yi+=1; page=1
+                else:
+                    page+=1
+                master_state_set("year_index",yi); master_state_set("page",page)
+                master_state_set("last_progress",{"year":year,"page":page,"calls":calls,"rows_saved":rows_saved})
+            if yi>=len(years):
+                initial_complete=True
+                master_state_set("initial_complete",True)
+                master_state_set("last_sync_date",time.strftime("%Y-%m-%d"))
+            return {"ok":True,"mode":"initial","calls":calls,"rows_saved":rows_saved,
+                    "initial_complete":initial_complete,"year_index":yi,"years_total":len(years)}
+        # Incremental update after initial mirror.
+        last=str(master_state_get("last_sync_date",time.strftime("%Y-%m-%d")) or time.strftime("%Y-%m-%d"))
+        page=1
+        while calls<max_calls:
+            d=_brickset_sync_page({"updatedSince":last,"pageSize":500,"pageNumber":page,"extendedData":1,"orderBy":"Number"})
+            calls+=1
+            sets=d.get("sets",[]) or []
+            rows=[_master_row(x,overlays) for x in sets if x.get("number")]
+            if rows:
+                master_upsert(rows); rows_saved+=len(rows)
+            matches=int(d.get("matches") or len(sets)); pages=max(1,math.ceil(matches/500))
+            if page>=pages: break
+            page+=1
+        master_state_set("last_sync_date",time.strftime("%Y-%m-%d"))
+        return {"ok":True,"mode":"incremental","calls":calls,"rows_saved":rows_saved,"initial_complete":True}
+    except Exception as e:
+        return {"ok":False,"error":str(e)[:250]}
+    finally:
+        MASTER_SYNC_LOCK.release()
+
+def _bl_pct(v):
+    return urllib.parse.quote(str(v),safe="~-._")
+
+def _bricklink_get(path):
+    if not bricklink_configured(): return None,None
+    url=BL_BASE+path
+    oauth={"oauth_consumer_key":BL_CONSUMER_KEY,"oauth_token":BL_TOKEN_VALUE,
+           "oauth_signature_method":"HMAC-SHA1","oauth_timestamp":str(int(time.time())),
+           "oauth_nonce":secrets.token_hex(8),"oauth_version":"1.0"}
+    param_str="&".join(f"{_bl_pct(k)}={_bl_pct(v)}" for k,v in sorted(oauth.items()))
+    base_str="GET&"+_bl_pct(url)+"&"+_bl_pct(param_str)
+    key=_bl_pct(BL_CONSUMER_SECRET)+"&"+_bl_pct(BL_TOKEN_SECRET)
+    sig=base64.b64encode(hmac.new(key.encode(),base_str.encode(),hashlib.sha1).digest()).decode()
+    oauth["oauth_signature"]=sig
+    auth="OAuth "+", ".join(f'{_bl_pct(k)}="{_bl_pct(v)}"' for k,v in oauth.items())
+    try:
+        r=requests.get(url,headers={"Authorization":auth},timeout=12)
+        return r,(r.json() if r.text else None)
+    except Exception: return None,None
+
+def run_bricklink_enrich(max_items=20):
+    if not bricklink_configured(): return {"ok":False,"error":"bricklink_not_configured"}
+    if not master_table_ready(): return {"ok":False,"error":"master_table_missing"}
+    try:
+        r=requests.get(f"{SUPABASE_URL}/rest/v1/{MASTER_TABLE}",headers=_master_headers(),
+            params={"select":"set_number,brickset_number","bricklink_checked_at":"is.null",
+                    "order":"year.desc","limit":str(min(max(1,int(max_items)),50))},timeout=8)
+        rows=r.json() if r.ok else []
+    except Exception: rows=[]
+    updated=0
+    for row in rows:
+        n=str(row.get("set_number") or ""); full=str(row.get("brickset_number") or (n+"-1"))
+        if "-" not in full: full=n+"-1"
+        resp,data=_bricklink_get("/items/SET/"+urllib.parse.quote(full,safe="-"))
+        payload={"set_number":n,"bricklink_checked_at":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}
+        if resp is not None and resp.ok and isinstance(data,dict) and data.get("data"):
+            item=data.get("data") or {}
+            payload.update({"bricklink_number":item.get("no") or full,"bricklink_name":item.get("name"),
+                            "bricklink_alt_no":item.get("alternate_no"),"bricklink_image_url":item.get("image_url"),
+                            "bricklink_status":"ok"})
+            updated+=1
+        else:
+            payload["bricklink_status"]="not_found"
+        master_upsert([payload])
+    return {"ok":True,"checked":len(rows),"updated":updated}
+
+def _master_sync_worker():
+    global MASTER_SYNC_THREAD
+    MASTER_SYNC_RUNTIME.update({"running":True,"message":"Brickset 마스터 DB 동기화 중",
+                                "started_at":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())})
+    try:
+        result=run_master_sync(20)
+        MASTER_SYNC_RUNTIME["last_result"]=result
+        MASTER_SYNC_RUNTIME["message"]="동기화 완료" if result.get("ok") else (result.get("error") or "동기화 실패")
+        if result.get("ok") and result.get("initial_complete") and bricklink_configured():
+            bl=run_bricklink_enrich(20)
+            MASTER_SYNC_RUNTIME["bricklink_result"]=bl
+    finally:
+        MASTER_SYNC_RUNTIME["running"]=False
+
+@app.post("/api/master-sync-background")
+def master_sync_background():
+    global MASTER_SYNC_THREAD
+    if not master_table_ready():
+        return jsonify(ok=False,error="master_table_missing"),200
+    if MASTER_SYNC_THREAD is not None and MASTER_SYNC_THREAD.is_alive():
+        return jsonify(ok=True,started=False,already_running=True,status=MASTER_SYNC_RUNTIME)
+    MASTER_SYNC_THREAD=threading.Thread(target=_master_sync_worker,daemon=True,name="lego-master-sync")
+    MASTER_SYNC_THREAD.start()
+    return jsonify(ok=True,started=True,status=MASTER_SYNC_RUNTIME)
+
+@app.get("/api/master-sync-status")
+def master_sync_status():
+    count=0
+    if master_table_ready():
+        try:
+            r=requests.get(f"{SUPABASE_URL}/rest/v1/{MASTER_TABLE}",headers=_master_headers("count=exact"),
+                           params={"select":"set_number","limit":"1"},timeout=5)
+            cr=r.headers.get("Content-Range","")
+            tail=cr.rsplit("/",1)[-1] if "/" in cr else ""
+            if tail.isdigit(): count=int(tail)
+        except Exception: pass
+    return jsonify(ok=True,table_ready=master_table_ready(),count=count,
+                   initial_complete=bool(master_state_get("initial_complete",False)),
+                   progress=master_state_get("last_progress",{}),
+                   last_sync_date=master_state_get("last_sync_date",None),
+                   running=bool(MASTER_SYNC_RUNTIME.get("running")),
+                   message=MASTER_SYNC_RUNTIME.get("message"),
+                   bricklink_configured=bricklink_configured())
+
+@app.get("/api/master-filters")
+def master_filters():
+    now=time.time()
+    if now-MASTER_FILTER_CACHE.get("t",0)<21600 and MASTER_FILTER_CACHE.get("themes"):
+        return jsonify(ok=True,themes=MASTER_FILTER_CACHE["themes"],years=MASTER_FILTER_CACHE["years"],cached=True)
+    themes=[]; years=[]
+    try:
+        tr=requests.get(API+"/getThemes",params={"apiKey":KEY},timeout=10)
+        if tr.ok:
+            themes=sorted([str(x.get("theme")) for x in tr.json().get("themes",[]) if x.get("theme")])
+    except Exception: pass
+    years=_brickset_years()
+    MASTER_FILTER_CACHE.update({"t":now,"themes":themes,"years":years})
+    return jsonify(ok=True,themes=themes,years=years,cached=False)
+
+@app.get("/api/master-catalog")
+def master_catalog_api():
+    if not master_table_ready():
+        return jsonify(ok=False,error="master_table_missing",items=[],total=0),200
+    q=(request.args.get("q") or "").strip()
+    theme=(request.args.get("theme") or "").strip()
+    year=(request.args.get("year") or "").strip()
+    sort=(request.args.get("sort") or "year_desc").strip()
+    try: page=max(1,int(request.args.get("page") or 1))
+    except Exception: page=1
+    try: size=max(10,min(60,int(request.args.get("page_size") or 30)))
+    except Exception: size=30
+    params={"select":"set_number,brickset_number,name_en,name_ko,theme,subtheme,year,pieces,minifigs,image_url,thumbnail_url,price_krw,retail_us,availability,brickset_url,bricklink_number,bricklink_name,bricklink_alt_no,bricklink_image_url"}
+    if q:
+        safe=re.sub(r"[^0-9A-Za-z가-힣 _-]"," ",q).strip()
+        if safe:
+            params["or"]=f"(set_number.ilike.*{safe}*,name_en.ilike.*{safe}*,name_ko.ilike.*{safe}*,bricklink_name.ilike.*{safe}*,bricklink_alt_no.ilike.*{safe}*)"
+    if theme: params["theme"]="eq."+theme
+    if year.isdigit(): params["year"]="eq."+year
+    orders={"year_desc":"year.desc,name_en.asc","year_asc":"year.asc,name_en.asc","name":"name_en.asc","number":"set_number.asc","pieces_desc":"pieces.desc.nullslast"}
+    params["order"]=orders.get(sort,orders["year_desc"])
+    params["limit"]=str(size); params["offset"]=str((page-1)*size)
+    try:
+        r=requests.get(f"{SUPABASE_URL}/rest/v1/{MASTER_TABLE}",headers=_master_headers("count=exact"),params=params,timeout=10)
+        if not r.ok: return jsonify(ok=False,error="master_query_failed",items=[],total=0),200
+        total=0; cr=r.headers.get("Content-Range","")
+        tail=cr.rsplit("/",1)[-1] if "/" in cr else ""
+        if tail.isdigit(): total=int(tail)
+        return jsonify(ok=True,items=r.json() or [],total=total,page=page,page_size=size,
+                       pages=max(1,math.ceil(total/size)) if total else 1)
+    except Exception as e:
+        return jsonify(ok=False,error=type(e).__name__,items=[],total=0),200
