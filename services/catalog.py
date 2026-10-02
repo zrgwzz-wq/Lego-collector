@@ -10,7 +10,7 @@ from pathlib import Path
 import requests
 
 from .supabase_client import (
-    configured, rest_get, rest_post, rpc, service_headers
+    configured, rest_get, rest_post, rest_delete, rpc, service_headers
 )
 
 BRICKSET_API = "https://brickset.com/api/v3.asmx"
@@ -22,6 +22,60 @@ STATE_TABLE = "lego_catalog_sync_state"
 FILTER_CACHE = {"t": 0, "data": None}
 LOCAL_KR = None
 SYNC_LOCK = threading.Lock()
+
+AUTO_TRANSLATION_MARKERS = ("자동 번역", "machine translation", "google translate", "auto translate")
+
+# 화면에 표시할 제품명을 번역하는 사전이 아닙니다.
+# 영문 제품명/테마에 이 단어가 실제로 포함될 때 한국어 검색어만 추가합니다.
+CURATED_SEARCH_TERMS = {
+    "star wars": ["스타워즈"],
+    "marvel": ["마블"],
+    "spider-man": ["스파이더맨"],
+    "spiderman": ["스파이더맨"],
+    "spidey": ["스파이디"],
+    "iron man": ["아이언맨"],
+    "avengers": ["어벤져스"],
+    "captain america": ["캡틴 아메리카"],
+    "hulk": ["헐크"],
+    "thor": ["토르"],
+    "batman": ["배트맨"],
+    "superman": ["슈퍼맨"],
+    "harry potter": ["해리 포터", "해리포터"],
+    "lord of the rings": ["반지의 제왕"],
+    "super mario": ["슈퍼 마리오", "슈퍼마리오"],
+    "minecraft": ["마인크래프트"],
+    "jurassic world": ["쥬라기 월드", "주라기 월드"],
+    "disney": ["디즈니"],
+    "technic": ["테크닉"],
+    "speed champions": ["스피드 챔피언"],
+    "architecture": ["아키텍처"],
+    "ninjago": ["닌자고"],
+    "duplo": ["듀플로"],
+    "friends": ["프렌즈"],
+    "sanctum": ["생텀"],
+    "sanctorum": ["생토럼"],
+    "ferrari": ["페라리"],
+    "lamborghini": ["람보르기니"],
+    "porsche": ["포르쉐"],
+    "mclaren": ["맥라렌"],
+    "mercedes": ["메르세데스", "벤츠"],
+}
+
+def _is_auto_translation_source(source):
+    s = str(source or "").strip().lower()
+    return any(marker.lower() in s for marker in AUTO_TRANSLATION_MARKERS)
+
+def _curated_search_aliases(row):
+    hay = " ".join([
+        str(row.get("name_en") or ""),
+        str(row.get("theme") or ""),
+        str(row.get("subtheme") or ""),
+    ]).lower()
+    aliases = []
+    for english, korean_terms in CURATED_SEARCH_TERMS.items():
+        if english in hay:
+            aliases.extend(korean_terms)
+    return sorted(set(a for a in aliases if a))
 
 def _now_iso():
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -205,10 +259,12 @@ def _verified_overlays():
     for n, row in (_load_local_kr() or {}).items():
         if not isinstance(row, dict):
             continue
+        source = row.get("source") or "기존 검증 한국 카탈로그"
+        name_ko = None if _is_auto_translation_source(source) else row.get("name_ko")
         out[str(n)] = {
-            "name_ko": row.get("name_ko"),
+            "name_ko": name_ko,
             "price_krw": row.get("price"),
-            "source": row.get("source") or "기존 검증 한국 카탈로그",
+            "source": source if name_ko else None,
         }
     if configured():
         try:
@@ -219,10 +275,14 @@ def _verified_overlays():
                     if not n:
                         continue
                     prev = out.get(n, {})
+                    source = row.get("source") or prev.get("source") or "기존 검증 한국 카탈로그"
+                    candidate_name = row.get("name_ko")
+                    if _is_auto_translation_source(source):
+                        candidate_name = None
                     out[n] = {
-                        "name_ko": row.get("name_ko") or prev.get("name_ko"),
+                        "name_ko": candidate_name or prev.get("name_ko"),
                         "price_krw": row.get("price_krw") if row.get("price_krw") is not None else prev.get("price_krw"),
-                        "source": row.get("source") or prev.get("source") or "기존 검증 한국 카탈로그",
+                        "source": source if candidate_name else prev.get("source"),
                     }
         except Exception:
             pass
@@ -294,10 +354,24 @@ def _normalize_alias(s):
 
 def upsert_aliases(rows):
     payload = []
+    now = _now_iso()
     for row in rows:
         n = str(row.get("set_number") or "")
+        if not n:
+            continue
+
+        name_ko = row.get("name_ko")
+        name_ko_source = row.get("name_ko_source") or "catalog"
+        if name_ko and not _is_auto_translation_source(name_ko_source):
+            norm = _normalize_alias(name_ko)
+            if norm:
+                payload.append({
+                    "alias": str(name_ko), "alias_normalized": norm,
+                    "set_number": n, "alias_type": "korean_name",
+                    "source": name_ko_source, "updated_at": now
+                })
+
         for alias, kind, source in [
-            (row.get("name_ko"), "korean_name", row.get("name_ko_source") or "catalog"),
             (row.get("name_en"), "english_name", "Brickset"),
             (row.get("bricklink_name"), "bricklink_name", "BrickLink"),
             (row.get("bricklink_alt_no"), "alternate_number", "BrickLink"),
@@ -309,8 +383,18 @@ def upsert_aliases(rows):
                 payload.append({
                     "alias": str(alias), "alias_normalized": norm,
                     "set_number": n, "alias_type": kind, "source": source,
-                    "updated_at": _now_iso()
+                    "updated_at": now
                 })
+
+        for alias in _curated_search_aliases(row):
+            norm = _normalize_alias(alias)
+            if norm:
+                payload.append({
+                    "alias": alias, "alias_normalized": norm,
+                    "set_number": n, "alias_type": "curated_search_term",
+                    "source": "내부 검색 사전", "updated_at": now
+                })
+
     if not payload:
         return True
     ok = True
@@ -340,8 +424,8 @@ def sync_catalog(max_calls=24):
     saved = 0
     overlays = _verified_overlays()
     try:
-        # 검증된 한국명/한국 정가는 별도 컬럼 overlay로 보존
-        apply_verified_korean()
+        # 표시용 한글명은 검증된 이름만 유지. 자동 번역명은 제거합니다.
+        enforce_verified_korean_policy()
         initial_complete = bool(state_get("initial_complete", False))
         if not initial_complete:
             years = state_get("years", None)
@@ -411,28 +495,49 @@ def sync_catalog(max_calls=24):
     finally:
         SYNC_LOCK.release()
 
-def _translate_en_to_ko(text):
-    q = str(text or "").strip()
-    if not q:
-        return None
+def remove_auto_translated_display_names(max_batches=20):
+    """Remove only names explicitly marked as automatic translations.
+    Verified/official Korean names are never touched.
+    """
+    if not table_ready():
+        return {"ok": False, "error": "master_table_missing", "cleared": 0}
+
+    cleared = 0
+    ok = True
+    for _ in range(max_batches):
+        try:
+            r = rest_get(
+                MASTER_TABLE,
+                {
+                    "select": "set_number,name_ko_source",
+                    "name_ko_source": "eq.자동 번역",
+                    "limit": "500",
+                },
+                timeout=12,
+            )
+            rows = r.json() if r.ok else []
+        except Exception:
+            rows = []
+        if not rows:
+            break
+
+        patches = [{
+            "set_number": str(x.get("set_number")),
+            "name_ko": None,
+            "name_ko_source": None,
+            "name_ko_updated_at": None,
+            "updated_at": _now_iso(),
+        } for x in rows if x.get("set_number")]
+        if patches:
+            ok = upsert_master(patches) and ok
+            cleared += len(patches)
+
     try:
-        r = requests.get(
-            "https://translate.googleapis.com/translate_a/single",
-            params={"client": "gtx", "sl": "en", "tl": "ko", "dt": "t", "q": q},
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=4
-        )
-        if not r.ok:
-            return None
-        data = r.json()
-        parts = []
-        for row in (data[0] or []):
-            if isinstance(row, list) and row and row[0]:
-                parts.append(str(row[0]))
-        out = " ".join(parts).strip()
-        return out if re.search(r"[가-힣]", out) else None
+        rest_delete(ALIAS_TABLE, {"source": "eq.자동 번역"}, timeout=12)
     except Exception:
-        return None
+        pass
+
+    return {"ok": ok, "cleared": cleared}
 
 def apply_verified_korean():
     overlays = _verified_overlays()
@@ -455,55 +560,15 @@ def apply_verified_korean():
     upsert_aliases(rows)
     return {"ok": ok, "updated": len(rows)}
 
-def koreanize_missing(limit=400, workers=8):
-    if not table_ready():
-        return {"ok": False, "error": "master_table_missing"}
-    apply_verified_korean()
-    try:
-        r = rest_get(
-            MASTER_TABLE,
-            {
-                "select": "set_number,name_en,name_ko",
-                "name_ko": "is.null",
-                "name_en": "not.is.null",
-                "released": "eq.true",
-                "order": "year.desc.nullslast,set_number.asc",
-                "limit": str(max(1, min(int(limit), 1200))),
-            },
-            timeout=15,
-        )
-        candidates = r.json() if r.ok else []
-    except Exception:
-        candidates = []
-    if not candidates:
-        return {"ok": True, "translated": 0, "remaining_hint": 0}
-
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    translated = []
-    now = _now_iso()
-
-    def one(row):
-        return row.get("set_number"), _translate_en_to_ko(row.get("name_en"))
-
-    with ThreadPoolExecutor(max_workers=max(1, min(int(workers), 12))) as ex:
-        futs = [ex.submit(one, x) for x in candidates]
-        for fut in as_completed(futs):
-            try:
-                n, name = fut.result()
-            except Exception:
-                continue
-            if n and name:
-                translated.append({
-                    "set_number": str(n),
-                    "name_ko": name,
-                    "name_ko_source": "자동 번역",
-                    "name_ko_updated_at": now,
-                    "updated_at": now,
-                })
-
-    ok = upsert_master(translated) if translated else True
-    upsert_aliases(translated)
-    return {"ok": ok, "translated": len(translated), "checked": len(candidates)}
+def enforce_verified_korean_policy():
+    cleanup = remove_auto_translated_display_names()
+    verified = apply_verified_korean()
+    return {
+        "ok": bool(cleanup.get("ok")) and bool(verified.get("ok")),
+        "auto_names_cleared": cleanup.get("cleared", 0),
+        "verified_names_applied": verified.get("updated", 0),
+        "policy": "verified_korean_else_english",
+    }
 
 def sync_status():
     return {
