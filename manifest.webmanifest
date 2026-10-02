@@ -1,0 +1,9 @@
+{
+  "name": "LEGO Collector 2.0",
+  "short_name": "Collector",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fff8ed",
+  "theme_color": "#fff8ed",
+  "lang": "ko"
+}

@@ -1,9 +1,29 @@
 services:
-- type: web
-  name: lego-collector
-  runtime: python
-  buildCommand: pip install -r requirements.txt
-  startCommand: gunicorn server:app
-  envVars:
-  - key: BRICKSET_API_KEY
-    sync: false
+  - type: web
+    name: lego-collector-2
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn server:app
+    envVars:
+      - key: BRICKSET_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+
+  - type: cron
+    name: lego-catalog-sync
+    runtime: python
+    schedule: "0 */6 * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python catalog_sync.py --max-calls 24 --koreanize 400 --workers 8
+    envVars:
+      - key: BRICKSET_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false

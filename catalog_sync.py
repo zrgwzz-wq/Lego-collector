@@ -1,7 +1,24 @@
-import os, json
-from server import run_master_sync, run_bricklink_enrich, bricklink_configured
-max_calls=int(os.getenv("CATALOG_SYNC_MAX_CALLS","20"))
-result=run_master_sync(max_calls)
-print(json.dumps(result,ensure_ascii=False))
-if result.get("ok") and result.get("initial_complete") and bricklink_configured():
-    print(json.dumps(run_bricklink_enrich(int(os.getenv("BRICKLINK_SYNC_MAX_ITEMS","20"))),ensure_ascii=False))
+
+import argparse
+import json
+from services.catalog import sync_catalog, koreanize_missing, sync_status
+
+def main():
+    p = argparse.ArgumentParser(description="LEGO Collector 2.0 catalog sync")
+    p.add_argument("--max-calls", type=int, default=24)
+    p.add_argument("--koreanize", type=int, default=400)
+    p.add_argument("--workers", type=int, default=8)
+    p.add_argument("--status", action="store_true")
+    args = p.parse_args()
+
+    if args.status:
+        print(json.dumps(sync_status(), ensure_ascii=False, indent=2))
+        return
+
+    result = sync_catalog(args.max_calls)
+    print(json.dumps({"catalog_sync": result}, ensure_ascii=False))
+    ko = koreanize_missing(args.koreanize, args.workers)
+    print(json.dumps({"koreanize": ko}, ensure_ascii=False))
+
+if __name__ == "__main__":
+    main()

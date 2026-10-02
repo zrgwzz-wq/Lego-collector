@@ -1,1157 +1,335 @@
-<!doctype html><html lang=ko><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>LEGO Collector v87</title><style>
-*{box-sizing:border-box}
-:root{--lego-red:#e3000b;--lego-red-dark:#ad0007;--lego-yellow:#ffd400;--lego-yellow-dark:#c7a300;--lego-blue:#0057b8;--lego-blue-dark:#003a7a;--lego-text:#fffaf0}
-body{margin:0;color:var(--lego-text);font-family:system-ui,-apple-system,sans-serif;background-color:#111318;background-image:radial-gradient(circle at 24px 24px, rgba(255,212,0,.08) 0 10px, transparent 10.5px),radial-gradient(circle at 64px 64px, rgba(227,0,11,.06) 0 10px, transparent 10.5px),linear-gradient(180deg,#1c1e25 0%,#0f1116 100%);background-size:88px 88px,88px 88px,100% 100%;background-attachment:fixed}
-header{position:sticky;top:0;background:linear-gradient(180deg,#ff1a25 0%,#d1000a 100%);border-bottom:4px solid var(--lego-yellow);padding:14px;z-index:3;box-shadow:0 6px 18px #0000003d}
-main{max-width:880px;margin:auto;padding:14px 12px 96px}
-.brand{font-size:23px;font-weight:900;letter-spacing:.2px;text-shadow:0 2px 0 rgba(0,0,0,.18)}
-.sub,.muted{font-size:12px;color:#ffe9a6}.page{display:none}.page.on{display:block}
-.card{background:linear-gradient(180deg,#242730 0%,#1b1e26 100%);border:2px solid rgba(255,212,0,.55);border-radius:20px;padding:14px;margin:10px 0;box-shadow:0 8px 0 rgba(109,83,0,.55),0 18px 32px rgba(0,0,0,.20)}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.stat b{font-size:19px;display:block}.search{display:flex;gap:8px}.search input{flex:1}
-input,select,button{padding:11px 12px;border-radius:14px;border:2px solid rgba(255,212,0,.45);background:#2d303a;color:white;max-width:100%;box-shadow:inset 0 1px 0 rgba(255,255,255,.06)}
-input::placeholder{color:#aeb4c2}
-input:focus,select:focus{outline:none;border-color:var(--lego-yellow);box-shadow:0 0 0 3px rgba(255,212,0,.16), inset 0 1px 0 rgba(255,255,255,.06)}
-button{background:linear-gradient(180deg,#ff2b35 0%,var(--lego-red) 100%);border-color:#ff8086;color:#fff;font-weight:900;letter-spacing:.2px;box-shadow:0 4px 0 var(--lego-red-dark),0 10px 16px rgba(0,0,0,.16);cursor:pointer;transition:transform .06s ease,box-shadow .06s ease,filter .15s ease}
-button:hover{filter:brightness(1.03)}
-button:active{transform:translateY(2px);box-shadow:0 2px 0 var(--lego-red-dark),0 6px 10px rgba(0,0,0,.14)}.product{display:grid;grid-template-columns:125px 1fr;gap:14px;align-items:start}.product img{width:125px;height:125px;object-fit:contain;background:white;border-radius:18px;border:3px solid rgba(255,212,0,.65);box-shadow:0 8px 18px rgba(0,0,0,.18)}.unit{border-top:1px solid #36363c;margin-top:12px;padding-top:10px}.field{margin:5px 0}.field label{display:block;font-size:11px;color:#999}.field input,.field select{width:100%}.badge{font-size:10px;background:rgba(255,212,0,.12);border:1px solid rgba(255,212,0,.45);color:#ffe593;border-radius:999px;padding:4px 8px;display:inline-block;margin:3px}.nav{position:fixed;bottom:0;left:0;right:0;display:grid;grid-template-columns:repeat(5,1fr);background:linear-gradient(180deg,#292c35 0%,#1d2027 100%);border-top:4px solid var(--lego-yellow);z-index:5;box-shadow:0 -10px 24px rgba(0,0,0,.28)}.nav button{border:0;background:none;color:#c5cad5;padding:10px 2px;box-shadow:none;border-radius:0}.nav button.on{color:var(--lego-yellow);text-shadow:0 0 8px rgba(255,212,0,.2)}.positive{color:#6ed785}.negative{color:#ff7474}.source{border-left:3px solid #777;padding-left:9px;margin:8px 0}.choice{display:flex;gap:5px;flex-wrap:wrap}.choice button{background:linear-gradient(180deg,#1770db 0%,var(--lego-blue) 100%);border-color:#6fb3ff;box-shadow:0 4px 0 var(--lego-blue-dark),0 10px 16px rgba(0,0,0,.16)}.choice button.on{background:linear-gradient(180deg,#ff2b35 0%,var(--lego-red) 100%);border-color:#ff8086;box-shadow:0 4px 0 var(--lego-red-dark),0 10px 16px rgba(0,0,0,.16)}.empty{text-align:center;color:#777;padding:25px}
-.collection-toolbar{display:flex;align-items:stretch;gap:10px;flex-direction:column;margin:0 0 16px}
-.collection-view-choice{flex-wrap:nowrap}
-.collection-view-choice button{min-width:74px}
-.collection-card{padding:16px}
-.collection-summary{display:grid;grid-template-columns:100px 1fr auto;gap:14px;align-items:center}
-.collection-summary img{width:100px;height:100px;object-fit:contain;background:#fff;border-radius:18px;border:3px solid rgba(255,212,0,.65);box-shadow:0 8px 18px rgba(0,0,0,.18)}
-.collection-summary-main{min-width:0}
-.collection-title{font-weight:800;line-height:1.25}
-.collection-meta{color:#999;font-size:13px;margin-top:4px}
-.collection-money{display:flex;gap:8px;flex-wrap:wrap;margin-top:7px;font-size:13px}
-.collection-actions{display:flex;flex-direction:column;gap:7px}
-.collection-actions button{margin:0;white-space:nowrap}
-.collection-details{margin-top:12px}
-.collection-pl.positive,.collection-pl.negative{font-weight:700}
-@media(max-width:620px){
- .collection-summary{grid-template-columns:92px 1fr}
- .collection-summary img{width:92px;height:92px}
- .collection-actions{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr}
- .collection-actions .collection-toggle:only-child{grid-column:2}
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#fff8ed">
+<link rel="manifest" href="/manifest.webmanifest">
+<title>LEGO Collector 2.0</title>
+<style>
+:root{
+  --bg:#fff8ed;--paper:#fffdf8;--ink:#34302d;--muted:#817a73;--line:#eadfd2;
+  --red:#f7a7a3;--red2:#f38f8a;--blue:#9ec8ef;--yellow:#f4d98e;--green:#a8d8bc;
+  --lav:#c9b8e8;--shadow:0 8px 24px rgba(85,68,50,.08);--radius:22px
 }
-.valuation-badge{font-size:10px;font-weight:600;vertical-align:middle;margin-left:3px}.valuation-source{margin-top:5px;font-size:11px}
-.collection-layout-choice{display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%}
-.collection-layout-choice button{width:100%;background:rgba(227,0,11,.14);color:#ff9ba0;border-color:rgba(255,90,98,.65);box-shadow:none}.collection-layout-choice button.on{background:linear-gradient(180deg,#ff2b35 0%,var(--lego-red) 100%);color:#fff;border-color:#ff8086;box-shadow:0 4px 0 var(--lego-red-dark),0 10px 16px rgba(0,0,0,.16)}.collection-layout-choice button.on::before{content:"✓ ";font-weight:900}
-.collection-mode-tools{display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%}
-.collection-mode-tools button{width:100%;margin:0;background:linear-gradient(180deg,#ffd93e 0%,var(--lego-yellow) 100%);color:#3a2a00;border-color:#fff1a3;box-shadow:0 4px 0 var(--lego-yellow-dark),0 10px 16px rgba(0,0,0,.14)}
-.collection-mode-tools button.on{background:linear-gradient(180deg,#ff2b35 0%,var(--lego-red) 100%);color:#fff;border-color:#ff8086;box-shadow:0 4px 0 var(--lego-red-dark),0 10px 16px rgba(0,0,0,.16)}
-.collection-mode-tools .wide-tool{grid-column:1/-1}
-.card-mode-tools{margin-top:2px}
-.sheet-mode-tools{margin-top:2px}
-.sheet-wrap{overflow:auto;border:2px solid rgba(255,212,0,.45);border-radius:18px;background:#171a20;max-height:68vh;margin-top:10px;box-shadow:0 10px 26px rgba(0,0,0,.18)}
-.collection-sheet{border-collapse:separate;border-spacing:0;min-width:1640px;width:100%;font-size:12px}
-.collection-sheet th,.collection-sheet td{border-right:1px solid #393d48;border-bottom:1px solid #393d48;padding:7px;vertical-align:middle;background:#20232b}
-.collection-sheet th{position:sticky;top:0;z-index:3;background:#303647;color:#ffe593;white-space:nowrap;text-align:left}
-.collection-sheet th:first-child,.collection-sheet td:first-child{position:sticky;left:0;z-index:2;background:#272b35}
-.collection-sheet th:first-child{z-index:4;background:#374053}
-.collection-sheet input,.collection-sheet select{width:100%;min-width:92px;padding:8px;border-radius:8px;font-size:12px}
-.collection-sheet .sheet-name{min-width:210px;max-width:260px;white-space:normal;font-weight:700}
-.collection-sheet .sheet-memo{min-width:180px}
-.collection-sheet .sheet-source{min-width:185px;color:#aaa;white-space:normal}
-.sheet-pnl.positive,.sheet-pnl.negative{font-weight:800;white-space:nowrap}
-.import-preview{display:none;margin-top:10px}.import-preview.on{display:block}
-.import-preview .preview-lines{max-height:160px;overflow:auto;margin:8px 0;padding:8px;background:#151518;border-radius:10px;font-size:12px;color:#bbb}
-.import-actions{display:flex;gap:7px;flex-wrap:wrap}.import-actions button.secondary{background:#444}
-@media(max-width:620px){.collection-toolbar{align-items:stretch}.collection-layout-choice,.collection-mode-tools{width:100%}}
-
-.collection-find{display:grid;grid-template-columns:1fr auto;gap:8px;margin:0 0 6px}
-.collection-find input{width:100%;min-width:0}
-.collection-find button{min-width:76px}
-.collection-find-status{min-height:18px;margin:0 2px 10px;color:#ffe593}
-.collection-found{outline:3px solid var(--lego-yellow);outline-offset:2px}
-.collection-sheet tr.collection-found td{background:#3a2f10}
-.scroll-top-btn{display:none;position:fixed;right:16px;bottom:74px;z-index:9;width:48px;height:48px;border-radius:50%;
-  padding:0;background:linear-gradient(180deg,#ffdb43 0%,var(--lego-yellow) 100%);color:#3a2a00;border:2px solid #fff1a3;font-size:25px;line-height:48px;box-shadow:0 4px 0 var(--lego-yellow-dark),0 12px 20px #0006}
-.scroll-top-btn.show{display:block}
-@media(max-width:620px){
- .collection-find{grid-template-columns:1fr 78px}
- .scroll-top-btn{right:14px;bottom:72px}
-}
-
-.theme-badge{display:inline-block;margin-top:5px;padding:4px 8px;border-radius:999px;background:rgba(0,87,184,.2);border:1px solid rgba(111,179,255,.4);color:#dcecff;font-size:10px;font-weight:800}
-.collection-filter-tools{display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%}
-.collection-filter-tools select{width:100%;margin:0}
-.collection-filter-tools select:last-child{grid-column:1/-1}
-#collectionFilterSummary{min-height:16px;margin-top:-2px}
-.price-history-box{margin-top:12px;padding-top:10px;border-top:1px solid #36363c}
-.price-history-box button{background:linear-gradient(180deg,#1770db 0%,var(--lego-blue) 100%);border-color:#6fb3ff;box-shadow:0 4px 0 var(--lego-blue-dark),0 10px 16px rgba(0,0,0,.16)}
-.price-history-panel{margin-top:8px}
-.price-history-stats{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0;font-size:11px;color:#aaa}
-.kream-chart-wrap{margin-top:10px}.kream-period-tabs{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin:8px 0 10px}.kream-period-tabs button{padding:7px 3px;background:#252831;border:1px solid #454955;box-shadow:none;color:#aeb4c2;font-size:11px}.kream-period-tabs button.on{background:#fff;color:#111;border-color:#fff;box-shadow:none}.kream-market-chart{width:100%;height:auto;display:block;background:#171a20;border-radius:12px;border:1px solid #343946}.kream-market-chart .gridline{stroke:#343946;stroke-width:1}.kream-market-chart .line{fill:none;stroke:#f2f2f2;stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round}.kream-market-chart .dot{fill:#f2f2f2}.kream-market-chart text{fill:#8f96a3;font-size:10px}.kream-trade-list{margin-top:12px;border-top:1px solid #353944}.kream-trade-row{display:grid;grid-template-columns:1fr auto;gap:8px;padding:8px 2px;border-bottom:1px solid #2c3039;font-size:12px}.kream-trade-row .date{color:#aeb4c2}.kream-history-note{font-size:11px;color:#c8cdd6;margin-top:6px}
-.price-history-list{font-size:11px;color:#aaa;margin-top:6px;max-height:100px;overflow:auto}
-.search-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}
-.search-actions button{margin:0}
-.search-actions .secondary{background:linear-gradient(180deg,#1770db 0%,var(--lego-blue) 100%);border-color:#6fb3ff;box-shadow:0 4px 0 var(--lego-blue-dark),0 10px 16px rgba(0,0,0,.16)}
-.wishlist-toolbar{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
-.wishlist-card{display:grid;grid-template-columns:110px 1fr;gap:14px;align-items:start}
-.wishlist-card img{width:110px;height:110px;object-fit:contain;background:#fff;border-radius:18px;border:3px solid rgba(255,212,0,.65);box-shadow:0 8px 18px rgba(0,0,0,.18)}
-.wishlist-info{min-width:0}
-.wishlist-title{font-weight:800;line-height:1.25}
-.wishlist-price{margin-top:7px}
-.wishlist-target{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
-.wishlist-target .wide{grid-column:1/-1}
-.wishlist-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}
-.wishlist-actions button{margin:0}
-.wishlist-hit{color:#9af0a9;font-weight:800}
-.wishlist-gap{color:#e5ddb6;font-size:12px}
-@media(max-width:620px){
- .nav button{font-size:11px}
- .wishlist-card{grid-template-columns:100px 1fr}
- .wishlist-card img{width:100px;height:100px}
- .wishlist-target{grid-template-columns:1fr}
- .wishlist-target .wide{grid-column:auto}
-}
-
-@media(max-width:620px){
- .product{grid-template-columns:112px 1fr;gap:12px}
- .product img{width:112px;height:112px}
-}
-
-.page-title,.section-title{letter-spacing:.2px}
-.positive{color:#8ef0a1}.negative{color:#ff8f8f}
-.source{border-left:4px solid var(--lego-yellow);padding-left:10px;margin:8px 0;color:#ffe7a1}
-.empty{text-align:center;color:#d8c98a;padding:25px}
-.secondary, .wishlist-actions button:not(:first-child), .search-actions button:not(:first-child){background:linear-gradient(180deg,#1770db 0%,var(--lego-blue) 100%);border-color:#6fb3ff;box-shadow:0 4px 0 var(--lego-blue-dark),0 10px 16px rgba(0,0,0,.16)}
-button[disabled]{opacity:.55;filter:grayscale(.2);cursor:not-allowed;box-shadow:none}
-.collection-title,.wishlist-title{font-weight:900}
-.collection-meta,.collection-money,.wishlist-price,.valuation-source,.price-history-list,.price-history-stats{color:#f1e4aa}
-.stat,.field label{color:#f5e08a}
-
-.nav{grid-template-columns:repeat(6,1fr)}
-.nav button{font-size:10px}
-.search-back{display:flex;align-items:center;gap:8px;margin:0 0 10px}.search-back button{background:linear-gradient(180deg,#1770db 0%,var(--lego-blue) 100%);border-color:#6fb3ff;box-shadow:0 4px 0 var(--lego-blue-dark),0 10px 16px rgba(0,0,0,.16)}
-.master-status-card button{margin-top:10px}.master-toolbar{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}.master-search{grid-column:1/-1;display:grid;grid-template-columns:1fr auto;gap:8px}.master-toolbar select{width:100%}.master-toolbar select:last-child{grid-column:1/-1}.master-card{display:grid;grid-template-columns:116px 1fr;gap:14px;align-items:start}.master-card img{width:116px;height:116px;object-fit:contain;background:#fff;border-radius:18px;border:3px solid rgba(255,212,0,.65);box-shadow:0 8px 18px rgba(0,0,0,.18)}.master-title{font-size:16px;font-weight:900}.master-meta{font-size:12px;color:#f1e4aa;margin-top:4px}.master-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.master-pager{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;margin:14px 0}.master-pager button:last-child{justify-self:stretch}.master-pager span{text-align:center;font-size:12px;color:#ffe593;min-width:80px}
-@media(max-width:620px){.master-card{grid-template-columns:104px 1fr}.master-card img{width:104px;height:104px}.nav button{font-size:9px}}
-</style><script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script></head><body>
-<header><div class=brand>🧱 LEGO Collector <span style="color:#e3000b">v87</span></div><div id=status class=sub>서버 확인 중…</div><div id=catalogStatus class=sub></div><div id=syncStatus class=sub>⏳ 영구 카탈로그 동기화 준비 중…</div></header><main>
-<section id=dash class="page on"><h2>대시보드</h2><div class=grid><div class="card stat">보유수량<b id=cnt>0개</b></div><div class="card stat">보유 정가<b id=listVal>₩0</b></div><div class="card stat">보유 구매가<b id=buy>₩0</b></div><div class="card stat">평가금액<b id=val>₩0</b></div><div class="card stat">미실현손익<b id=pl>₩0</b></div><div class="card stat">판매완료<b id=soldCnt>0개</b></div><div class="card stat">실현손익<b id=realPL>₩0</b></div></div><div class=card><b>v87</b><div class=muted>앱 실행 시 Brickset과 한국 LEGO 데이터를 자동 확인합니다. 단종 세트의 한글명은 LEGO Korea 조립설명서에서도 찾고, Supabase가 연결되어 있으면 새로 찾은 정보를 영구 저장해 다음부터 즉시 재사용합니다.</div><button onclick=updateAllKr()>🇰🇷 한국 카탈로그 다시 적용</button>
-<button onclick=usage()>Brickset API 사용량 확인</button><div id=krUpdateBox class=muted></div><div id=usageBox class=muted></div></div></section>
-<section id=search class=page><h2>검색</h2><div class=search><input id=q placeholder="세트번호 또는 제품명" enterkeyhint="search" inputmode="search"><button onclick=go()>검색</button></div><div id=res></div></section>
-<section id=collection class=page><h2>소장목록</h2>
-<div class="collection-find">
-  <input id=collectionFindInput type=search inputmode=search enterkeyhint=search
-         placeholder="소장품 세트번호 또는 제품명 검색">
-  <button type=button onclick="findCollectionItem()">찾기</button>
-</div>
-<div id=collectionFindStatus class="muted collection-find-status"></div>
-<div class="collection-toolbar">
-  <div class="collection-layout-choice">
-    <button id=cardLayoutBtn type=button onclick="setCollectionLayout('cards')">카드 보기</button>
-    <button id=sheetLayoutBtn type=button onclick="setCollectionLayout('sheet')">시트 보기</button>
+*{box-sizing:border-box}html{background:var(--bg)}body{margin:0;color:var(--ink);font-family:system-ui,-apple-system,"Noto Sans KR",sans-serif;background:
+radial-gradient(circle at 16px 16px,rgba(214,188,156,.14) 0 6px,transparent 7px) 0 0/34px 34px,
+linear-gradient(180deg,#fffaf2,#fff7eb);min-height:100vh}
+button,input,select,textarea{font:inherit}button{cursor:pointer}
+.app{max-width:900px;margin:auto;min-height:100vh;padding-bottom:92px}
+header{position:sticky;top:0;z-index:20;padding:15px 16px 12px;background:rgba(255,248,237,.93);backdrop-filter:blur(14px);border-bottom:1px solid rgba(218,200,180,.7)}
+.brand{display:flex;align-items:center;gap:11px}.brickmark{width:39px;height:31px;border-radius:8px;background:var(--red);box-shadow:inset 0 -4px 0 rgba(120,60,55,.12),0 3px 0 #dd7f7a;position:relative}
+.brickmark:before,.brickmark:after{content:"";position:absolute;top:-7px;width:12px;height:8px;border-radius:6px 6px 2px 2px;background:#f9b8b4}
+.brickmark:before{left:5px}.brickmark:after{right:5px}.brand h1{font-size:18px;margin:0}.brand small{display:block;color:var(--muted);margin-top:2px}
+.toprow{display:flex;align-items:center;justify-content:space-between;gap:8px}.account-chip{border:1px solid var(--line);background:#fff;padding:8px 11px;border-radius:999px;color:#625b55;font-size:12px}
+main{padding:14px}.page{display:none}.page.on{display:block}
+.hero{padding:16px;border-radius:var(--radius);background:rgba(255,253,248,.9);border:1px solid var(--line);box-shadow:var(--shadow);margin-bottom:12px}
+.hero h2{margin:0 0 4px;font-size:20px}.hero p{margin:0;color:var(--muted);font-size:13px}
+.searchbar{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:13px}
+input,select,textarea{width:100%;border:1px solid var(--line);background:#fffdf9;color:var(--ink);border-radius:14px;padding:12px 13px;outline:none}
+input:focus,select:focus,textarea:focus{border-color:#b6a7e0;box-shadow:0 0 0 3px rgba(201,184,232,.18)}
+.btn{border:0;border-radius:14px;padding:11px 14px;background:var(--blue);color:#263746;font-weight:800;box-shadow:0 3px 0 rgba(76,116,150,.18)}
+.btn:active{transform:translateY(2px);box-shadow:none}.btn.red{background:var(--red)}.btn.green{background:var(--green)}.btn.yellow{background:var(--yellow)}.btn.lav{background:var(--lav)}.btn.ghost{background:#fff;border:1px solid var(--line);box-shadow:none}
+.filters{display:none;margin-top:10px;padding:12px;border-radius:18px;background:#fffdf9;border:1px solid var(--line)}.filters.on{display:block}
+.filtergrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.filtergrid .wide{grid-column:1/-1}
+.toolbar{display:flex;gap:8px;align-items:center;justify-content:space-between;margin:10px 2px}.muted{color:var(--muted);font-size:12px}
+.cards{display:grid;gap:10px}.card{background:rgba(255,253,248,.95);border:1px solid var(--line);border-radius:20px;box-shadow:var(--shadow);overflow:hidden}
+.product{display:grid;grid-template-columns:112px 1fr;gap:13px;padding:12px}.product img{width:112px;height:112px;object-fit:contain;background:#fff;border-radius:16px}
+.title{font-weight:900;line-height:1.25}.sub{font-size:12px;color:var(--muted);margin-top:3px}.meta{font-size:12px;color:#6d655e;margin-top:7px;line-height:1.5}.price{font-weight:900;margin-top:7px}
+.badge{display:inline-block;padding:4px 8px;border-radius:999px;background:#f1ebff;color:#65558c;font-size:11px;margin-top:6px}.badge.official{background:#e5f5e9;color:#3f7350}
+.product-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}.product-actions .btn{padding:8px 10px;font-size:12px}
+.pager{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;margin:14px 0}.pager span{text-align:center;font-size:12px;color:var(--muted)}
+.summary{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:12px}.stat{background:#fffdf9;border:1px solid var(--line);border-radius:17px;padding:12px}.stat b{display:block;font-size:17px;margin-top:3px}.stat small{color:var(--muted)}
+.collection-card{padding:13px}.collection-head{display:grid;grid-template-columns:86px 1fr;gap:12px}.collection-head img{width:86px;height:86px;object-fit:contain;background:#fff;border-radius:14px}
+.collection-money{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px;font-size:12px}.pill{padding:5px 8px;border-radius:999px;background:#f7f1e9}
+.row-actions{display:flex;gap:7px;margin-top:10px}.row-actions .btn{font-size:12px;padding:8px 10px}
+.empty{text-align:center;padding:30px 16px;color:var(--muted)}
+.nav{position:fixed;z-index:25;bottom:0;left:50%;transform:translateX(-50%);width:min(900px,100%);display:grid;grid-template-columns:repeat(4,1fr);padding:8px 10px calc(8px + env(safe-area-inset-bottom));background:rgba(255,253,248,.95);backdrop-filter:blur(14px);border-top:1px solid var(--line)}
+.nav button{border:0;background:transparent;border-radius:16px;padding:8px 2px;color:#827a73;font-size:11px}.nav button b{display:block;font-size:20px;line-height:1.1}.nav button.on{background:#f7eee2;color:#3b3530;font-weight:900}
+.modal{display:none;position:fixed;inset:0;z-index:50;background:rgba(55,45,38,.38);padding:18px;align-items:flex-end;justify-content:center}.modal.on{display:flex}
+.sheet{width:min(720px,100%);max-height:88vh;overflow:auto;background:#fffaf3;border-radius:26px 26px 18px 18px;padding:18px;box-shadow:0 20px 60px rgba(0,0,0,.18)}
+.sheet h3{margin:0 0 6px}.close{float:right;border:0;background:#f1e8de;border-radius:999px;width:34px;height:34px}
+.detail-top{display:grid;grid-template-columns:140px 1fr;gap:14px}.detail-top img{width:140px;height:140px;object-fit:contain;background:white;border-radius:18px}
+.formgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:12px}.formgrid .wide{grid-column:1/-1}.label{font-size:11px;color:var(--muted);margin:0 0 4px 3px}
+.notice{padding:11px;border-radius:14px;background:#fff2c9;color:#6a5930;font-size:12px;margin:10px 0}
+.authbox{display:grid;gap:8px}.settings-card{padding:15px;margin-bottom:10px}.settings-card h3{margin:0 0 7px}.settings-card p{margin:4px 0;color:var(--muted);font-size:13px}
+.chart{margin-top:13px;border:1px solid var(--line);border-radius:16px;padding:10px;background:#fff}.chart svg{width:100%;height:150px;display:block}.chart-labels{display:flex;justify-content:space-between;color:var(--muted);font-size:10px}
+@media(max-width:560px){.product{grid-template-columns:96px 1fr}.product img{width:96px;height:96px}.detail-top{grid-template-columns:110px 1fr}.detail-top img{width:110px;height:110px}.filtergrid,.formgrid{grid-template-columns:1fr}.filtergrid .wide,.formgrid .wide{grid-column:auto}}
+</style>
+</head>
+<body>
+<div class="app">
+<header>
+  <div class="toprow">
+    <div class="brand"><div class="brickmark"></div><div><h1>LEGO Collector 2.0</h1><small id="catalogState">카탈로그 확인 중…</small></div></div>
+    <button class="account-chip" id="accountChip" onclick="nav('settings')">로그인</button>
   </div>
-
-  <div class="collection-filter-tools">
-    <select id=collectionStatusFilter onchange="setCollectionFilter('status',this.value)">
-      <option value=all>전체 상태</option>
-      <option value=held>보유중</option>
-      <option value=sold>판매완료</option>
-    </select>
-    <select id=collectionThemeFilter onchange="setCollectionFilter('theme',this.value)">
-      <option value="">전체 테마</option>
-    </select>
-    <select id=collectionSort onchange="setCollectionFilter('sort',this.value)">
-      <option value=number>세트번호순</option>
-      <option value=name>제품명순</option>
-      <option value=recent>최근 구매순</option>
-      <option value=value_desc>평가금액 높은순</option>
-      <option value=pnl_desc>수익 큰순</option>
-      <option value=pnl_asc>손실 큰순</option>
-    </select>
-  </div>
-  <div id=collectionFilterSummary class="muted"></div>
-
-  <div id=cardModeTools class="collection-mode-tools card-mode-tools">
-    <button id=compactViewBtn type=button onclick="setCollectionView('compact')">간략</button>
-    <button id=detailViewBtn type=button onclick="setCollectionView('detail')">상세</button>
-    <button id=kreamBatchBtn type=button class=wide-tool onclick="updateAllKreamValues()">KREAM 평가가 업데이트</button>
-  </div>
-
-  <div id=sheetModeTools class="collection-mode-tools sheet-mode-tools">
-    <button id=kreamSheetBtn type=button class=wide-tool onclick="updateAllKreamValues()">KREAM 평가가 업데이트</button>
-    <button type=button onclick="downloadCollectionXlsx()">Excel 다운로드</button>
-    <button type=button onclick="downloadCollectionCsv()">CSV 다운로드</button>
-    <button type=button class=wide-tool onclick="document.getElementById('collectionImportFile').click()">Excel/CSV 가져오기</button>
-    <input id=collectionImportFile type=file accept=".xlsx,.xls,.csv" style="display:none" onchange="previewCollectionImport(event)">
-    <div id=collectionImportPreview class="card import-preview wide-tool"></div>
-  </div>
-
-  <div id=kreamBatchStatus class=muted>KREAM 체결 거래에서 검증된 가격만 반영하며, 애매한 값은 기존 평가가를 유지합니다.</div>
-</div>
-<div class=grid>
- <div class="card stat">보유수량<b id=ccnt>0개</b></div>
- <div class="card stat">정가 합계<b id=clist>₩0</b></div>
- <div class="card stat">구매가 합계<b id=cbuy>₩0</b></div>
- <div class="card stat">정가 대비 절감<b id=csave>₩0</b></div>
- <div class="card stat">현재 평가금액<b id=cval>₩0</b></div>
- <div class="card stat">미실현손익<b id=cpl>₩0</b></div>
-</div><div id=col></div></section>
-<section id=wishlist class=page><h2>관심목록</h2>
-<div class="wishlist-toolbar">
-  <button id=wishlistKreamBtn type=button onclick="updateAllWishlistKream()">KREAM 관심가 업데이트</button>
-  <div id=wishlistStatus class=muted>목표가를 입력해두면 현재가와 바로 비교할 수 있어요.</div>
-</div>
-<div id=wishlistList></div>
-</section>
-<section id=allsets class=page><h2>전체보기</h2>
-<div class="card master-status-card">
-  <b>🧱 LEGO 마스터 카탈로그</b>
-  <div id=masterSyncStatus class=muted>DB 상태 확인 중…</div>
-  <button id=masterSyncBtn type=button onclick="startMasterBackgroundSync()">서버 백그라운드 동기화 시작/계속</button>
-</div>
-<div class=master-toolbar>
-  <div class=master-search><input id=masterQ type=search enterkeyhint=search placeholder="세트번호 / 한글명 / 영문명 / BrickLink 번호"><button onclick="loadMasterCatalog(1)">검색</button></div>
-  <select id=masterTheme onchange="loadMasterCatalog(1)"><option value="">전체 테마</option></select>
-  <select id=masterYear onchange="loadMasterCatalog(1)"><option value="">전체 연도</option></select>
-  <select id=masterSort onchange="loadMasterCatalog(1)">
-    <option value=year_desc>최신 출시순</option><option value=year_asc>오래된순</option>
-    <option value=name>제품명순</option><option value=number>세트번호순</option><option value=pieces_desc>부품수 많은순</option>
-  </select>
-</div>
-<div id=masterSummary class=muted></div>
-<div id=masterList></div>
-<div class=master-pager><button id=masterPrev onclick="loadMasterCatalog(masterPage-1)">← 이전</button><span id=masterPageInfo></span><button id=masterNext onclick="loadMasterCatalog(masterPage+1)">다음 →</button></div>
-</section>
-<section id=prices class=page><h2>가격관리</h2><div class=card><b>국내 가격 · v87</b><div class=muted>LEGO Korea 공홈에 현재 등록된 제품은 공식 한글명·원화 가격을 최우선으로 자동 동기화합니다. 공홈에서 찾지 못한 단종 제품만 검증 카탈로그/한국 발매가를 보조로 사용합니다.</div></div><div id=priceList></div></section>
-
-</main>
-<button id=scrollTopBtn class=scroll-top-btn type=button aria-label="맨 위로 이동" onclick="scrollToTop()">↑</button>
-<nav class=nav><button data-page=dash class=on onclick="page('dash',this)">📊<br>대시보드</button><button data-page=search onclick="page('search',this)">🔎<br>검색</button><button data-page=allsets onclick="page('allsets',this);loadMasterCatalog(masterPage||1)">📚<br>전체보기</button><button data-page=collection onclick="page('collection',this)">🧱<br>소장목록</button><button data-page=wishlist onclick="page('wishlist',this)">♡<br>관심</button><button data-page=prices onclick="page('prices',this)">₩<br>가격관리</button></nav>
-<script>
-function addOwnedEncoded(payload){
-  try{
-    const json = decodeURIComponent(escape(atob(payload)));
-    add(json);
-  }catch(e){
-    alert("소장 등록 중 오류가 발생했습니다.");
-  }
-}
-
-function addWishlistEncoded(payload){
-  try{
-    const json=decodeURIComponent(escape(atob(payload)));
-    const s=JSON.parse(json);
-    const n=String(s.number);
-    const prev=wishlist[n]||{};
-    wishlist[n]={
-      set:s,
-      target:+prev.target||0,
-      current:+prev.current||0,
-      currentSource:prev.currentSource||"",
-      currentDate:prev.currentDate||"",
-      currentModel:prev.currentModel||""
-    };
-    saveWishlist();
-    alert("관심목록에 등록했습니다.");
-  }catch(e){
-    alert("관심 등록 중 오류가 발생했습니다.");
-  }
-}
-
-let db=JSON.parse(localStorage.getItem("legov87")||localStorage.getItem("legov86")||localStorage.getItem("legov85")||localStorage.getItem("legov84")||localStorage.getItem("legov83")||localStorage.getItem("legov82")||localStorage.getItem("legov81")||localStorage.getItem("legov80")||localStorage.getItem("legov79")||localStorage.getItem("legov78")||localStorage.getItem("legov77")||localStorage.getItem("legov76")||localStorage.getItem("legov75")||localStorage.getItem("legov74")||localStorage.getItem("legov73")||localStorage.getItem("legov72")||localStorage.getItem("legov71")||localStorage.getItem("legov70")||localStorage.getItem("legov23.2")||localStorage.getItem("legov22")||localStorage.getItem("legov21")||localStorage.getItem("legov20")||localStorage.getItem("legov19")||localStorage.getItem("legov18")||localStorage.getItem("legov17")||localStorage.getItem("legov16")||localStorage.getItem("legov15")||localStorage.getItem("legov14")||localStorage.getItem("legov13")||localStorage.getItem("legov12")||localStorage.getItem("legov11")||localStorage.getItem("legov10")||localStorage.getItem("legov9")||localStorage.getItem("legov8")||"{}"),won=n=>"₩"+Math.round(+n||0).toLocaleString("ko-KR"),today=()=>new Date().toISOString().slice(0,10);
-const fmtReleaseDate=v=>{const s=String(v||"");return s?s.slice(0,10):""};
-const fmtTradeDate=v=>{if(!v)return "";try{return new Date(v).toLocaleString("ko-KR",{timeZone:"Asia/Seoul",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"}).replace(/\. /g,"-").replace(".","").trim()}catch(e){return String(v)}};
-
-
-let wishlist={};
-try{wishlist=JSON.parse(localStorage.getItem("legoWishlist")||"{}")||{}}catch(e){wishlist={}}
-let localPriceHistory={};
-try{localPriceHistory=JSON.parse(localStorage.getItem("legoPriceHistory")||"{}")||{}}catch(e){localPriceHistory={}}
-
-function saveWishlist(redraw=true){
- localStorage.setItem("legoWishlist",JSON.stringify(wishlist));
- if(redraw)drawWishlist();
-}
-function recordLocalPriceHistory(number,row){
- const n=String(number);
- const price=+(row?.price||row?.price_krw||0);
- if(!price)return;
- const item={
-   set_number:n,price_krw:price,
-   source:row?.source||"KREAM 최근 체결가",
-   source_url:row?.source_url||"",
-   checked_at:row?.checked_at||today()
- };
- const arr=localPriceHistory[n]||[];
- const key=item.checked_at+"|"+item.source;
- const next=arr.filter(x=>(String(x.checked_at)+"|"+String(x.source))!==key);
- next.push(item);
- next.sort((a,b)=>String(a.checked_at).localeCompare(String(b.checked_at)));
- localPriceHistory[n]=next.slice(-365);
- localStorage.setItem("legoPriceHistory",JSON.stringify(localPriceHistory));
-}
-
-const statusEl=document.getElementById("status");
-fetch("/api/health").then(r=>r.json()).then(d=>{
- statusEl.textContent=d.key_configured?"● Brickset API 연결됨 · 캐시 "+d.cache_items+"건":"● API Key 미설정"; catalogStatus.textContent=(d.supabase_configured?"🇰🇷 한국 영구 카탈로그 연결됨 · ":"⚠️ Supabase 미연결 · ")+"로컬 "+(d.kr_catalog_items||0)+"개";
-}).catch(()=>statusEl.textContent="● 서버 오류");
-function page(id,b){document.querySelectorAll(".page").forEach(x=>x.classList.remove("on"));document.getElementById(id).classList.add("on");document.querySelectorAll(".nav button").forEach(x=>x.classList.remove("on"));b.classList.add("on");draw()}
-function makeUnitId(n){return String(n)+"-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,8)}
-function norm(){Object.values(db).forEach(x=>{if(x.units&&!x.u)x.u=x.units;if(!x.u)x.u=[];if(!x.market)x.market={};Object.assign(x.market,{krMsrp:x.market.krMsrp||0,krMsrpDate:x.market.krMsrpDate||"",kream:x.market.kream||0,kreamDate:x.market.kreamDate||"",shop:x.market.shop||0,shopDate:x.market.shopDate||"",sourceNote:x.market.sourceNote||"",kreamSource:x.market.kreamSource||"",kreamModel:x.market.kreamModel||"",kreamTradeAt:x.market.kreamTradeAt||"",kreamProductId:x.market.kreamProductId||"",mode:x.market.mode||"manual"});x.u.forEach(u=>{if(!u.uid)u.uid=makeUnitId(x.set?.number||"unit");u.sold=!!u.sold;u.sell=+u.sell||0;u.value=+u.value||0;u.buy=+u.buy||0})});save(false)}norm();
-Object.entries(db).forEach(([n,x])=>{
- if(+x.market?.kream>0&&x.market?.kreamDate){
-   recordLocalPriceHistory(n,{price:+x.market.kream,source:x.market.kreamSource||"KREAM 최근 체결가",checked_at:x.market.kreamDate});
- }
-});
-
-
-(function repairV72BadKreamValues(){
- try{
-   const prev=JSON.parse(localStorage.getItem("legov71")||"{}");
-   let changed=false;
-   for(const [n,x] of Object.entries(db||{})){
-     const bad=+x?.market?.kream||0;
-     const badSource=String(x?.market?.kreamSource||"");
-     if(badSource==="KREAM 최근 체결가" && bad>0 && bad<5000){
-       const old=prev?.[n];
-       if(old){
-         x.market.kream=+(old.market?.kream||0);
-         x.market.kreamDate=old.market?.kreamDate||"";
-         x.market.kreamSource=old.market?.kreamSource||"";
-         x.market.mode=old.market?.mode||"manual";
-         x.u.forEach((u,i)=>{
-           if(+u.value===bad && old.u?.[i]){
-             u.value=+(old.u[i].value||0);
-           }
-         });
-         changed=true;
-       }
-     }
-   }
-   if(changed)localStorage.setItem("legov87",JSON.stringify(db));
- }catch(e){}
-})();
-function retail(s){let L=s.LEGOCom||{};for(let c of ["US","UK","CA","DE"])if(L[c]?.retailPrice)return {price:L[c].retailPrice,currency:c=="US"?"USD":c,region:c};return null}
-
-let searchBackSnapshot=null;
-let masterPage=1;
-let masterLastPages=1;
-let masterFiltersLoaded=false;
-function navTo(id){const b=document.querySelector(`.nav button[data-page="${id}"]`);if(b)page(id,b)}
-function searchBackBarHtml(){return searchBackSnapshot?`<div class="search-back"><button type="button" onclick="backSearchResults()">← 이전 결과</button></div>`:""}
-function renderKoreanChooser(ks,query){
- const bridge=ks.translated_query?`<div class="muted" style="margin:0 0 8px">자동 영문 연결: ${ks.translated_query}</div>`:"";
- res.innerHTML=bridge+(ks.results||[]).map(x=>`<div class="card kr-pick" data-number="${x.number}" style="cursor:pointer">
-   <div><b>${x.number} ${x.name_ko||x.name_en||""}</b></div>${x.name_ko&&x.name_en?`<div class="muted">${x.name_en}</div>`:""}
-   <div class="muted">${x.source?`연결 출처: ${x.source} · `:""}눌러서 상세정보 보기</div></div>`).join("");
- res.querySelectorAll(".kr-pick").forEach(el=>el.onclick=()=>{
-   searchBackSnapshot={type:"chooser",query:query,data:ks};q.value=el.dataset.number;go({keepBack:true});
- });
-}
-function backSearchResults(){
- const snap=searchBackSnapshot;if(!snap)return;
- if(snap.type==="chooser"){
-   q.value=snap.query;renderKoreanChooser(snap.data,snap.query);searchBackSnapshot=null;return;
- }
- if(snap.type==="master"){
-   const pageNo=snap.page||1,scroll=snap.scroll||0;searchBackSnapshot=null;navTo("allsets");
-   loadMasterCatalog(pageNo,false).then(()=>setTimeout(()=>window.scrollTo({top:scroll,behavior:"smooth"}),80));
- }
-}
-function openMasterSet(number){
- searchBackSnapshot={type:"master",page:masterPage,scroll:window.scrollY};q.value=String(number);navTo("search");go({keepBack:true});
-}
-async function loadMasterFilters(){
- if(masterFiltersLoaded)return;masterFiltersLoaded=true;
- try{const d=await fetch("/api/master-filters").then(r=>r.json());
-   (d.themes||[]).forEach(v=>masterTheme.insertAdjacentHTML("beforeend",`<option value="${String(v).replace(/"/g,'&quot;')}">${v}</option>`));
-   (d.years||[]).forEach(v=>masterYear.insertAdjacentHTML("beforeend",`<option value="${v}">${v}</option>`));
- }catch(e){}
-}
-function masterCard(x){
- const img=x.thumbnail_url||x.image_url||x.bricklink_image_url||"";
- const ko=x.name_ko||"", en=x.name_en||x.bricklink_name||"";
- const title=ko||en||"이름 미확인";
- const price=x.price_krw?` · 🇰🇷 ${won(x.price_krw)}`:(x.retail_us?` · $${x.retail_us}`:"");
- return `<div class="card master-card"><img src="${img}"><div><div class=master-title>${x.set_number} ${title}</div>
- ${ko&&en?`<div class=muted>${en}</div>`:""}<div class=master-meta>${x.year||""} · ${x.theme||""}${x.subtheme?` / ${x.subtheme}`:""} · ${x.pieces||0} pcs${price}</div>
- ${x.bricklink_alt_no?`<div class=badge>BrickLink 별칭 ${x.bricklink_alt_no}</div>`:""}
- <div class=master-actions><button onclick="openMasterSet('${x.set_number}')">상세보기</button></div></div></div>`;
-}
-async function loadMasterCatalog(pageNo=1,scrollTop=true){
- await loadMasterFilters();masterPage=Math.max(1,pageNo||1);masterList.innerHTML="<div class=card>카탈로그 불러오는 중…</div>";
- const p=new URLSearchParams({page:String(masterPage),page_size:"30",q:masterQ.value.trim(),theme:masterTheme.value,year:masterYear.value,sort:masterSort.value});
- try{const d=await fetch("/api/master-catalog?"+p.toString()).then(r=>r.json());
-   if(!d.ok){masterList.innerHTML=`<div class=card>${d.error==="master_table_missing"?"마스터 DB SQL을 먼저 실행해 주세요.":"카탈로그 조회 실패"}</div>`;return;}
-   masterLastPages=d.pages||1;masterSummary.textContent=`총 ${(d.total||0).toLocaleString()}개 · ${masterPage}/${masterLastPages} 페이지`;
-   masterList.innerHTML=(d.items||[]).map(masterCard).join("")||"<div class=empty>조건에 맞는 제품이 없습니다.</div>";
-   masterPageInfo.textContent=`${masterPage} / ${masterLastPages}`;masterPrev.disabled=masterPage<=1;masterNext.disabled=masterPage>=masterLastPages;
-   if(scrollTop)document.getElementById("allsets").scrollIntoView({behavior:"smooth",block:"start"});
- }catch(e){masterList.innerHTML="<div class=card>카탈로그 조회 오류</div>"}
-}
-async function refreshMasterSyncStatus(){
- try{const d=await fetch("/api/master-sync-status").then(r=>r.json());
-   if(!d.table_ready){masterSyncStatus.textContent="마스터 DB 테이블 미생성 · v87 SQL을 먼저 실행하세요.";return d;}
-   const p=d.progress||{};masterSyncStatus.textContent=`DB ${(d.count||0).toLocaleString()}개 · ${d.initial_complete?"초기 동기화 완료":(d.running?"백그라운드 동기화 중":"초기 동기화 진행중")}${p.year?` · ${p.year}년`:""}${d.bricklink_configured?" · BrickLink 연결됨":" · BrickLink 미연결"}`;return d;
- }catch(e){masterSyncStatus.textContent="마스터 DB 상태 확인 실패";return null}
-}
-async function startMasterBackgroundSync(){
- masterSyncBtn.disabled=true;try{const d=await fetch("/api/master-sync-background",{method:"POST"}).then(r=>r.json());
-   if(d.error==="master_table_missing")masterSyncStatus.textContent="마스터 DB SQL을 먼저 실행해 주세요.";else masterSyncStatus.textContent=d.already_running?"서버에서 이미 동기화 중입니다.":"서버 백그라운드 동기화를 시작했습니다. 폰 화면을 꺼도 서버 작업은 계속됩니다.";
-   setTimeout(refreshMasterSyncStatus,1200);
- }catch(e){masterSyncStatus.textContent="백그라운드 동기화 시작 실패"}finally{masterSyncBtn.disabled=false}
-}
-async function go(opts={}){
- if(!opts.keepBack)searchBackSnapshot=null;
- res.innerHTML="<div class=card>검색 중…</div>";
- try{
-  let searchValue=q.value.trim();
-  if(/[가-힣]/.test(searchValue)){
-   try{
-    let ks=await fetch("/api/kr-name-search?q="+encodeURIComponent(searchValue)).then(r=>r.json());
-    if(ks?.results?.length){renderKoreanChooser(ks,searchValue);return;}
-   }catch(e){}
-  }
-  let r=await fetch("/api/search?q="+encodeURIComponent(searchValue)),d=await r.json(),sets=d.sets||[];
-  let cards=await Promise.all(sets.map(async s=>{
-   let f=retail(s),img=s.image?.thumbnailURL||s.image?.imageURL||"",kr=null;
-   try{
-    kr=await fetch("/api/kr-fast/"+encodeURIComponent(s.number)+"?fast=1").then(x=>x.json()).then(d=>({...d,found:!!d.ok}));
-    if(false){
-     let auto=await fetch("/api/kr-overlay/"+encodeURIComponent(s.number)).then(x=>x.json());
-     if(auto?.ok) kr={found:true,number:s.number,name_ko:auto.name_ko,price:auto.price,currency:auto.currency,
-      source:auto.price_source||auto.name_source,name_source:auto.name_source,price_source:auto.price_source,
-      price_type:auto.price_type,checked_at:today()};
-    }
-   }catch(e){}
-   let nameKo=kr?.name_ko||db[s.number]?.set?.nameKo||"";
-   let releaseDate=s.launchDate||s.releaseDate||"";
-   let o={number:s.number,name:s.name,nameKo:nameKo,year:s.year,theme:s.theme,pieces:s.pieces,image:img,foreign:f,releaseDate:releaseDate};
-   if(db[s.number]){
-    if(nameKo){db[s.number].set.nameKo=nameKo;db[s.number].set.nameKoDate=kr?.checked_at||today()}
-    if(kr?.price){
-     if(!db[s.number].market)db[s.number].market={mode:"manual"};
-     db[s.number].market.krMsrp=+kr.price;db[s.number].market.krMsrpDate=kr.checked_at||today();db[s.number].market.krMsrpSource="LEGO Korea";
-    }
-   }
-   let priceHtml=kr?.price
-    ?`<div><b>🇰🇷 ${kr.price_type==="official_msrp"?"LEGO 공식 정가":"한국 발매가"} ${won(kr.price)}</b>${(kr.price_source||kr.source)?`<div class=muted>${legoPriceSourceLabel(kr.price_source||kr.source)}</div>`:""}</div>`
-    :(db[s.number]?.market?.krMsrp?`<div><b>🇰🇷 저장된 한국 가격 ${won(db[s.number].market.krMsrp)}</b></div>`:(f?`<div>🌎 해외 기준 정가 ${f.price} ${f.currency}<div class=muted>가격 출처: Brickset</div></div>`:`<div class=muted>정가 미확인</div>`));
-   if(!kr?.found)priceHtml+=`<div class=badge>🇰🇷 한국 정보 미등록</div>`;
-   let title=nameKo||s.name;
-   let nameSourceHtml=(nameKo&&kr?.name_source&&!String(kr.name_source).includes("LEGO Korea"))
-     ?`<div class="muted">한글 제품명 출처: ${kr.name_source}</div>`:"";
-   return `<div class="card product"><img src="${img}"><div><b>${s.number} ${title}</b>${nameKo&&s.name!=nameKo?`<div class=muted>${s.name}</div>`:""}${nameSourceHtml}<div class=muted>${s.year||""} · ${s.theme||""} · ${s.pieces||0} pcs${releaseDate?` · 출시 ${fmtReleaseDate(releaseDate)}`:""} ${d.cached?"· 캐시":""}</div>${priceHtml}<div class=search-actions><button type="button" onclick='addOwnedEncoded("${btoa(unescape(encodeURIComponent(JSON.stringify(o))))}")'>소장 등록</button><button type="button" class=secondary onclick='addWishlistEncoded("${btoa(unescape(encodeURIComponent(JSON.stringify(o))))}")'>♡ 관심 등록</button></div></div></div>`;
-  }));
-  localStorage.setItem("legov87",JSON.stringify(db));draw();
-  const exact=String(searchValue).replace(/\D/g,"");
-  if(exact && d.primary_number){
-    const primary=[], related=[];
-    sets.forEach((s,i)=>{
-      if(String(s.number).split("-")[0]===d.primary_number) primary.push(cards[i]);
-      else if(s.relation_type && s.relation_type!=="primary"){
-        const labels={
-          gwp:"🎁 GWP", parent_gwp:"🎁 이 GWP의 대상 세트",
-          bundle:"📦 번들", parent_bundle:"📦 이 세트가 포함된 번들",
-          remake:"🔄 리메이크·유사", parent_remake:"🔄 원본·관련 세트",
-          revision:"🛠️ 리비전", parent_revision:"🛠️ 원본·관련 세트",
-          connects:"🧩 직접 연결·확장", parent_connects:"🧩 연결 대상 세트",
-          collection:"🎬 같은 컬렉션", parent_collection:"🎬 같은 컬렉션"
-        };
-        related.push(`<div class=muted style="margin:14px 4px 2px;font-weight:800">${labels[s.relation_type]||"🔗 연관 세트"}</div><div class="related-display">${cards[i]}</div>`);
-      }
-    });
-    res.innerHTML=primary.join("")+(related.length?`<div style="margin-top:18px"><h3>🔗 연관 세트</h3>${related.join("")}</div>`:"")||"<div class=empty>검색 결과 없음</div>";
-  }else res.innerHTML=cards.join("")||`<div class=empty>${d.search_mode==="product_name"?"제품명과 일치하는 세트를 찾지 못했습니다.":"검색 결과 없음"}</div>`;
-  if(searchBackSnapshot)res.insertAdjacentHTML("afterbegin",searchBackBarHtml());
- }catch(e){res.innerHTML=searchBackBarHtml()+"<div class=card>검색 오류</div>"}
-}
-function add(j){let s=JSON.parse(j);if(!db[s.number])db[s.number]={set:s,u:[],market:{mode:"manual"}};db[s.number].u.push({uid:makeUnitId(s.number),condition:"MISB",buy:0,buyDate:"",value:0,sold:false,sell:0,sellDate:"",memo:""});if(wishlist[String(s.number)]){delete wishlist[String(s.number)];saveWishlist(false)}save();fetchKrPrice(s.number,true);navTo("collection")}
-function upd(n,i,k,v){db[n].u[i][k]=["buy","value","sell"].includes(k)?(+v||0):k=="sold"?v=="true":v;save()}
-
-async function fetchKrPrice(n,quiet=false){
- try{
-  let d=await fetch("/api/kr-fast/"+encodeURIComponent(n)).then(r=>r.json()).then(x=>({...x,found:!!x.ok})),changed=false;
-  if(d.found&&db[n]){
-   if(d.name_ko){db[n].set.nameKo=d.name_ko;db[n].set.nameKoDate=d.checked_at||today();changed=true}
-   if(d.price){if(!db[n].market)db[n].market={};db[n].market.krMsrp=+d.price;db[n].market.krMsrpDate=d.checked_at||today();db[n].market.krMsrpSource=d.source||"LEGO Korea";changed=true}
-  }
-  if(changed)save();
-  if(!quiet)alert(changed?("한국 카탈로그 적용 완료"+(d.name_ko?"\n"+d.name_ko:"")+(d.price?"\n"+won(d.price):"")):"등록된 한국 카탈로그 정보가 없습니다.");
-  return changed;
- }catch(e){if(!quiet)alert("한국 카탈로그 조회 오류");return false}
-}
-async function updateAllKr(){
- let nums=Object.keys(db), ok=0; krUpdateBox.textContent="한국 정가 확인 중…";
- for(let n of nums){if(await fetchKrPrice(n,true))ok++}
- krUpdateBox.textContent="완료: "+ok+"/"+nums.length+"개 한국 정가 확인 · "+today();
- draw();
-}
-
-function sourceSearch(kind,n){
- const x=db[n], name=(x?.set?.name||"");
- const query=encodeURIComponent("LEGO "+n+" "+name);
- const urls={
-  lego:"https://www.lego.com/ko-kr/search?q="+encodeURIComponent(n),
-  danawa:"https://search.danawa.com/dsearch.php?query="+query,
-  kream:"https://kream.co.kr/search?keyword="+query
- };
- window.open(urls[kind],"_blank","noopener");
-}
-function copyCatalogJson(n){
- let x=db[n],m=x.market||{},obj={};
- obj[n]={name_ko:x.set.nameKo||"",price:+m.krMsrp||null,currency:"KRW",source:"LEGO Korea",checked_at:m.krMsrpDate||today(),source_url:""};
- let t=JSON.stringify(obj,null,2);
- if(navigator.clipboard)navigator.clipboard.writeText(t).then(()=>alert("kr_catalog.json에 추가할 JSON을 복사했습니다."));
- else prompt("아래 JSON을 복사하세요.",t);
-}
-function setKoName(n,v){db[n].set.nameKo=(v||"").trim();db[n].set.nameKoDate=today();save()}
-function mkt(n,k,v){db[n].market[k]=["krMsrp","kream","shop"].includes(k)?(+v||0):v;if(k=="krMsrp"&&!db[n].market.krMsrpDate)db[n].market.krMsrpDate=today();if(k=="kream"&&!db[n].market.kreamDate)db[n].market.kreamDate=today();if(k=="shop"&&!db[n].market.shopDate)db[n].market.shopDate=today();save()}
-function setMode(n,m){db[n].market.mode=m;apply(n);save()}
-function apply(n){let x=db[n],m=x.market,p=m.mode=="kream"?+m.kream:m.mode=="shop"?+m.shop:0;if(m.mode!="manual"&&p)x.u.filter(u=>!u.sold).forEach(u=>u.value=p)}
-function save(redraw=true){localStorage.setItem("legov87",JSON.stringify(db));if(redraw)draw()}
-function del(n,i){db[n].u.splice(i,1);if(!db[n].u.length&&confirm("세트 정보도 삭제할까요?"))delete db[n];save()}
-async function usage(){try{let d=await fetch("/api/usage").then(r=>r.json());usageBox.textContent="최근 사용량: "+JSON.stringify(d)}catch(e){usageBox.textContent="사용량 조회 실패"}}
-
-
-let collectionLayout=localStorage.getItem("legoCollectionLayout")||"cards";
-let pendingCollectionImport=null;
-
-let collectionStatusFilter=localStorage.getItem("legoCollectionStatusFilter")||"all";
-let collectionThemeFilter=localStorage.getItem("legoCollectionThemeFilter")||"";
-let collectionSortMode=localStorage.getItem("legoCollectionSort")||"number";
-
-function setCollectionFilter(kind,value){
- if(kind==="status"){collectionStatusFilter=value||"all";localStorage.setItem("legoCollectionStatusFilter",collectionStatusFilter)}
- if(kind==="theme"){collectionThemeFilter=value||"";localStorage.setItem("legoCollectionThemeFilter",collectionThemeFilter)}
- if(kind==="sort"){collectionSortMode=value||"number";localStorage.setItem("legoCollectionSort",collectionSortMode)}
- draw();
-}
-function setMatchesStatus(x){
- if(collectionStatusFilter==="held")return x.u.some(u=>!u.sold);
- if(collectionStatusFilter==="sold")return x.u.some(u=>u.sold);
- return true;
-}
-function setPnl(x){
- const u=x.u.filter(v=>!v.sold);
- return u.reduce((a,v)=>a+(+v.value||0)-(+v.buy||0),0);
-}
-function setValue(x){return x.u.filter(v=>!v.sold).reduce((a,v)=>a+(+v.value||0),0)}
-function setRecentDate(x){
- return x.u.reduce((m,u)=>{
-   const d=String(u.buyDate||u.date||"");
-   return d>m?d:m;
- },"");
-}
-function filterSortCollection(all){
- let rows=all.filter(x=>setMatchesStatus(x));
- if(collectionThemeFilter)rows=rows.filter(x=>String(x.set?.theme||"")===collectionThemeFilter);
- rows=[...rows];
- if(collectionSortMode==="name")rows.sort((a,b)=>String(a.set.nameKo||a.set.name||"").localeCompare(String(b.set.nameKo||b.set.name||""),"ko"));
- else if(collectionSortMode==="recent")rows.sort((a,b)=>setRecentDate(b).localeCompare(setRecentDate(a)));
- else if(collectionSortMode==="value_desc")rows.sort((a,b)=>setValue(b)-setValue(a));
- else if(collectionSortMode==="pnl_desc")rows.sort((a,b)=>setPnl(b)-setPnl(a));
- else if(collectionSortMode==="pnl_asc")rows.sort((a,b)=>setPnl(a)-setPnl(b));
- else rows.sort((a,b)=>String(a.set.number).localeCompare(String(b.set.number),undefined,{numeric:true}));
- return rows;
-}
-function refreshCollectionFilterControls(all,shown){
- const themeSel=document.getElementById("collectionThemeFilter");
- if(themeSel){
-   const themes=[...new Set(all.map(x=>String(x.set?.theme||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"ko"));
-   const old=collectionThemeFilter;
-   themeSel.innerHTML='<option value="">전체 테마</option>'+themes.map(t=>`<option value="${escHtml(t)}">${escHtml(t)}</option>`).join("");
-   themeSel.value=themes.includes(old)?old:"";
-   if(old&&!themes.includes(old)){collectionThemeFilter="";localStorage.setItem("legoCollectionThemeFilter","")}
- }
- const statusEl=document.getElementById("collectionStatusFilter");
- if(statusEl)statusEl.value=collectionStatusFilter;
- const sortEl=document.getElementById("collectionSort");
- if(sortEl)sortEl.value=collectionSortMode;
- const sum=document.getElementById("collectionFilterSummary");
- if(sum)sum.textContent=`표시 ${shown.length}세트 / 전체 ${all.length}세트`;
-}
-
-let collectionFindLastQuery="";
-let collectionFindMatches=[];
-let collectionFindIndex=-1;
-
-function _collectionSearchCandidates(query){
- const q=String(query||"").trim().toLowerCase();
- if(!q)return [];
- const exactNumber=Object.values(db).filter(x=>String(x.set?.number||"").toLowerCase()===q);
- if(exactNumber.length)return exactNumber;
- const exactName=Object.values(db).filter(x=>{
-   const ko=String(x.set?.nameKo||"").trim().toLowerCase();
-   const en=String(x.set?.name||"").trim().toLowerCase();
-   return ko===q||en===q;
- });
- if(exactName.length)return exactName;
- return Object.values(db).filter(x=>{
-   const n=String(x.set?.number||"").toLowerCase();
-   const ko=String(x.set?.nameKo||"").toLowerCase();
-   const en=String(x.set?.name||"").toLowerCase();
-   return n.includes(q)||ko.includes(q)||en.includes(q);
- });
-}
-
-function findCollectionItem(){
- const input=document.getElementById("collectionFindInput");
- const status=document.getElementById("collectionFindStatus");
- const q=String(input?.value||"").trim();
- if(!q){
-   if(status)status.textContent="세트번호나 제품명을 입력해 주세요.";
-   input?.focus();
-   return;
- }
- const normalized=q.toLowerCase();
- if(normalized!==collectionFindLastQuery){
-   collectionFindLastQuery=normalized;
-   collectionFindMatches=_collectionSearchCandidates(q);
-   collectionFindIndex=-1;
- }
- if(!collectionFindMatches.length){
-   if(status)status.textContent=`"${q}"와 일치하는 등록 제품이 없습니다.`;
-   return;
- }
- collectionFindIndex=(collectionFindIndex+1)%collectionFindMatches.length;
- const item=collectionFindMatches[collectionFindIndex];
- const n=String(item.set.number);
- let candidates=[...document.querySelectorAll(`[data-collection-number="${n}"]`)];
- let el=candidates[0];
- if(!el && (collectionStatusFilter!=="all"||collectionThemeFilter)){
-   collectionStatusFilter="all";collectionThemeFilter="";
-   localStorage.setItem("legoCollectionStatusFilter","all");
-   localStorage.setItem("legoCollectionThemeFilter","");
-   draw();
-   candidates=[...document.querySelectorAll(`[data-collection-number="${n}"]`)];
-   el=candidates[0];
- }
- if(!el){
-   if(status)status.textContent=`${n} 제품은 등록되어 있지만 현재 화면에서 찾을 수 없습니다.`;
-   return;
- }
- document.querySelectorAll(".collection-found").forEach(x=>x.classList.remove("collection-found"));
- el.classList.add("collection-found");
- el.scrollIntoView({behavior:"smooth",block:"center",inline:"nearest"});
- setTimeout(()=>el.classList.remove("collection-found"),2200);
- const title=item.set.nameKo||item.set.name||"";
- if(status){
-   status.textContent=collectionFindMatches.length>1
-     ?`${collectionFindIndex+1}/${collectionFindMatches.length} · ${n} ${title} · 찾기를 다시 누르면 다음 결과`
-     :`${n} ${title}로 이동했습니다.`;
- }
-}
-
-function scrollToTop(){
- window.scrollTo({top:0,behavior:"smooth"});
-}
-function updateScrollTopButton(){
- const b=document.getElementById("scrollTopBtn");
- if(b)b.classList.toggle("show",window.scrollY>420);
-}
-window.addEventListener("scroll",updateScrollTopButton,{passive:true});
-
-function setCollectionLayout(mode){collectionLayout=mode==="sheet"?"sheet":"cards";localStorage.setItem("legoCollectionLayout",collectionLayout);draw()}
-function escHtml(v){return String(v??"").replace(/[&<>\"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
-function collectionRows(){
- const rows=[];
- Object.values(db).forEach(x=>x.u.forEach((u,i)=>{
-   const buy=+u.buy||0,value=+u.value||0;
-   rows.push({
-    "세트번호":String(x.set.number),"제품명":x.set.nameKo||x.set.name||"","영문명":x.set.name||"","테마":x.set.theme||"","출시일":fmtReleaseDate(x.set.releaseDate||x.set.launchDate||""),"보유번호":i+1,
-    "상태":u.condition||"MISB","구매가":buy,"구매일":u.buyDate||u.date||"","현재 평가가":value,
-    "평가기준":x.market.mode==="kream"?"KREAM":x.market.mode==="shop"?"국내 신품 최저가":"수동",
-    "평가출처":valuationSourceLabel(x),"판매상태":u.sold?"판매완료":"보유중","판매가":+u.sell||0,"판매일":u.sellDate||"","메모":u.memo||"",
-    "정가":+x.market.krMsrp||0,"손익":u.sold?((+u.sell||0)-buy):(value-buy),"레코드ID":u.uid||""
-   });
- }));
- return rows;
-}
-function sheetUnitEdit(n,i,k,v){
- const x=db[n],u=x?.u?.[i]; if(!u)return;
- if(["buy","value","sell"].includes(k))u[k]=+String(v).replace(/,/g,"")||0;
- else if(k==="sold")u.sold=(v==="판매완료"||v==="true");
- else u[k]=v;
- if(k==="value"&&x.market.mode!=="manual")x.market.mode="manual";
- save(false);refreshStatsOnly();
-}
-function sheetModeEdit(n,m){
- if(!db[n])return;
- db[n].market.mode=m==="KREAM"?"kream":m==="국내 신품 최저가"?"shop":"manual";
- apply(n);save(false);draw();
-}
-function renderCollectionSheet(all){
- const rows=[];
- all.forEach(x=>x.u.forEach((u,i)=>{
-   if(collectionStatusFilter==="held"&&u.sold)return;
-   if(collectionStatusFilter==="sold"&&!u.sold)return;
-   rows.push({x,u,i});
- }));
- if(!rows.length)return '<div class=empty>등록된 세트 없음</div>';
- return `<div class=sheet-wrap><table class=collection-sheet><thead><tr>
- <th>세트번호</th><th>제품명</th><th>테마</th><th>출시일</th><th>#</th><th>상태</th><th>구매가</th><th>구매일</th><th>현재 평가가</th><th>평가기준</th><th>평가출처</th><th>판매상태</th><th>판매가</th><th>판매일</th><th>메모</th><th>정가</th><th>손익</th>
- </tr></thead><tbody>${rows.map(({x,u,i})=>{
-   const n=String(x.set.number), pnl=u.sold?((+u.sell||0)-(+u.buy||0)):((+u.value||0)-(+u.buy||0));
-   const mode=x.market.mode==="kream"?"KREAM":x.market.mode==="shop"?"국내 신품 최저가":"수동";
-   return `<tr data-collection-number="${n}"><td><b>${escHtml(n)}</b></td><td class=sheet-name>${escHtml(x.set.nameKo||x.set.name||"")}</td><td>${escHtml(x.set.theme||"")}</td><td>${escHtml(fmtReleaseDate(x.set.releaseDate||x.set.launchDate||""))}</td><td>${i+1}</td>
-   <td><select onchange="sheetUnitEdit('${n}',${i},'condition',this.value)"><option ${u.condition==="MISB"?"selected":""}>MISB</option><option ${u.condition==="NIB"?"selected":""}>NIB</option><option ${u.condition==="중고 Complete"?"selected":""}>중고 Complete</option></select></td>
-   <td><input inputmode=numeric value="${+u.buy||""}" onchange="sheetUnitEdit('${n}',${i},'buy',this.value)"></td>
-   <td><input type=date value="${escHtml(u.buyDate||u.date||"")}" onchange="sheetUnitEdit('${n}',${i},'buyDate',this.value)"></td>
-   <td><input inputmode=numeric value="${+u.value||""}" ${x.market.mode!=="manual"?"disabled":""} onchange="sheetUnitEdit('${n}',${i},'value',this.value)"></td>
-   <td><select onchange="sheetModeEdit('${n}',this.value)"><option ${mode==="수동"?"selected":""}>수동</option><option ${mode==="KREAM"?"selected":""}>KREAM</option><option ${mode==="국내 신품 최저가"?"selected":""}>국내 신품 최저가</option></select></td>
-   <td class=sheet-source>${escHtml(valuationSourceLabel(x))}</td>
-   <td><select onchange="sheetUnitEdit('${n}',${i},'sold',this.value)"><option ${!u.sold?"selected":""}>보유중</option><option ${u.sold?"selected":""}>판매완료</option></select></td>
-   <td><input inputmode=numeric value="${+u.sell||""}" onchange="sheetUnitEdit('${n}',${i},'sell',this.value)"></td>
-   <td><input type=date value="${escHtml(u.sellDate||"")}" onchange="sheetUnitEdit('${n}',${i},'sellDate',this.value)"></td>
-   <td><input class=sheet-memo value="${escHtml(u.memo||"")}" onchange="sheetUnitEdit('${n}',${i},'memo',this.value)"></td>
-   <td>${won(x.market.krMsrp||0)}</td><td class="sheet-pnl ${pnl>=0?"positive":"negative"}">${pnl>=0?"+":""}${won(pnl)}</td></tr>`;
- }).join("")}</tbody></table></div>`;
-}
-function refreshStatsOnly(){
- const all=Object.values(db),u=all.flatMap(x=>x.u),held=u.filter(x=>!x.sold),sold=u.filter(x=>x.sold),b=held.reduce((a,x)=>a+(+x.buy||0),0),v=held.reduce((a,x)=>a+(+x.value||0),0),rp=sold.reduce((a,x)=>a+(+x.sell||0)-(+x.buy||0),0);
- const lp=all.reduce((sum,x)=>sum+(+x.market.krMsrp||0)*x.u.filter(u=>!u.sold).length,0),saving=lp-b;
- cnt.textContent=held.length+"개";listVal.textContent=won(lp);buy.textContent=won(b);val.textContent=won(v);pl.textContent=(v-b>=0?"+":"")+won(v-b);pl.className=v-b>=0?"positive":"negative";soldCnt.textContent=sold.length+"개";realPL.textContent=(rp>=0?"+":"")+won(rp);realPL.className=rp>=0?"positive":"negative";
- ccnt.textContent=held.length+"개";clist.textContent=won(lp);cbuy.textContent=won(b);csave.textContent=(saving>=0?"+":"")+won(saving);csave.className=saving>=0?"positive":"negative";cval.textContent=won(v);cpl.textContent=(v-b>=0?"+":"")+won(v-b);cpl.className=v-b>=0?"positive":"negative";
-}
-function requireXlsx(){if(typeof XLSX==="undefined"){alert("Excel 기능을 불러오지 못했습니다. 인터넷 연결 후 다시 시도해 주세요.");return false}return true}
-function makeExportWorkbook(){
- const rows=collectionRows();
- const headers=["세트번호","제품명","영문명","테마","출시일","보유번호","상태","구매가","구매일","현재 평가가","평가기준","평가출처","판매상태","판매가","판매일","메모","정가","손익","레코드ID"];
- const ws=XLSX.utils.json_to_sheet(rows,{header:headers});
- ws['!autofilter']={ref:ws['!ref']||'A1:S1'};
- ws['!cols']=[10,28,28,14,12,8,14,13,12,14,16,28,12,13,12,24,13,13,18].map(w=>({wch:w}));
- if(ws['!cols'][18])ws['!cols'][18].hidden=true;
- const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"소장목록");
- const all=Object.values(db),units=all.flatMap(x=>x.u),held=units.filter(x=>!x.sold),sold=units.filter(x=>x.sold);
- const buySum=held.reduce((a,u)=>a+(+u.buy||0),0),valueSum=held.reduce((a,u)=>a+(+u.value||0),0),real=sold.reduce((a,u)=>a+(+u.sell||0)-(+u.buy||0),0);
- const summary=[["LEGO Collector 요약",today()],["보유수량",held.length],["구매가 합계",buySum],["현재 평가금액",valueSum],["미실현손익",valueSum-buySum],["판매완료",sold.length],["실현손익",real]];
- const sws=XLSX.utils.aoa_to_sheet(summary);sws['!cols']=[{wch:22},{wch:18}];XLSX.utils.book_append_sheet(wb,sws,"요약");
- return wb;
-}
-function downloadCollectionXlsx(){if(!requireXlsx())return;XLSX.writeFile(makeExportWorkbook(),`LEGO_Collection_${today()}.xlsx`)}
-function downloadCollectionCsv(){
- const rows=collectionRows(),headers=["세트번호","제품명","영문명","테마","출시일","보유번호","상태","구매가","구매일","현재 평가가","평가기준","평가출처","판매상태","판매가","판매일","메모","정가","손익","레코드ID"];
- const esc=v=>'"'+String(v??"").replace(/"/g,'""')+'"';
- const csv='\ufeff'+[headers.map(esc).join(','),...rows.map(r=>headers.map(k=>esc(r[k])).join(','))].join('\r\n');
- const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.download=`LEGO_Collection_${today()}.csv`;document.body.appendChild(a);a.click();URL.revokeObjectURL(a.href);a.remove();
-}
-function findImportTarget(row){
- const uid=String(row["레코드ID"]||"").trim();
- if(uid){for(const [n,x] of Object.entries(db))for(let i=0;i<x.u.length;i++)if(String(x.u[i].uid||"")===uid)return {n,x,u:x.u[i],i}}
- const n=String(row["세트번호"]||"").trim().split('-')[0],i=(parseInt(row["보유번호"],10)||0)-1;
- if(db[n]&&db[n].u[i])return {n,x:db[n],u:db[n].u[i],i};return null;
-}
-function normalizeImportRows(raw){return raw.filter(r=>r&&Object.keys(r).some(k=>String(r[k]??"").trim()!==""))}
-async function previewCollectionImport(ev){
- const file=ev.target.files?.[0];ev.target.value="";if(!file)return;if(!requireXlsx())return;
- const box=document.getElementById('collectionImportPreview');box.classList.add('on');box.innerHTML='<b>파일 확인 중…</b>';
- try{
-  const data=await file.arrayBuffer(),wb=XLSX.read(data,{type:'array',cellDates:true}),ws=wb.Sheets[wb.SheetNames[0]],rows=normalizeImportRows(XLSX.utils.sheet_to_json(ws,{defval:"",raw:false,dateNF:"yyyy-mm-dd"}));
-  let matched=0,ignored=0,changed=0;const samples=[];
-  for(const row of rows){const t=findImportTarget(row);if(!t){ignored++;continue}matched++;
-   const checks=[["테마",t.x.set.theme||""],["출시일",fmtReleaseDate(t.x.set.releaseDate||t.x.set.launchDate||"")],["상태",t.u.condition],["구매가",+t.u.buy||0],["구매일",t.u.buyDate||t.u.date||""],["현재 평가가",+t.u.value||0],["판매상태",t.u.sold?"판매완료":"보유중"],["판매가",+t.u.sell||0],["판매일",t.u.sellDate||""],["메모",t.u.memo||""]];
-   const diff=checks.some(([k,old])=>String(row[k]??"")!==String(old??""));if(diff){changed++;if(samples.length<8)samples.push(`${t.n} #${t.i+1} · 변경 예정`)}
-  }
-  pendingCollectionImport={rows,fileName:file.name};
-  box.innerHTML=`<b>${escHtml(file.name)}</b><div class=muted>일치 ${matched}행 · 변경 예상 ${changed}행${ignored?` · 미일치 ${ignored}행`:""}</div><div class=preview-lines>${samples.length?samples.map(escHtml).join('<br>'):'변경사항이 없거나 값이 동일합니다.'}</div><div class=import-actions><button type=button onclick="applyCollectionImport()">변경 적용</button><button type=button class=secondary onclick="cancelCollectionImport()">취소</button></div>`;
- }catch(e){pendingCollectionImport=null;box.innerHTML='<b>파일을 읽지 못했습니다.</b><div class=muted>v87에서 내보낸 Excel/CSV 형식을 사용해 주세요.</div>'}
-}
-function applyCollectionImport(){
- if(!pendingCollectionImport)return;let applied=0,ignored=0;
- for(const row of pendingCollectionImport.rows){const t=findImportTarget(row);if(!t){ignored++;continue}const {x,u}=t;
-  if(Object.prototype.hasOwnProperty.call(row,"테마")&&String(row["테마"]||"").trim())x.set.theme=String(row["테마"]).trim();
-  if(Object.prototype.hasOwnProperty.call(row,"출시일")&&String(row["출시일"]||"").trim())x.set.releaseDate=String(row["출시일"]).slice(0,10);
-  if(Object.prototype.hasOwnProperty.call(row,"상태"))u.condition=String(row["상태"]||"MISB");
-  if(Object.prototype.hasOwnProperty.call(row,"구매가"))u.buy=+String(row["구매가"]||0).replace(/,/g,"")||0;
-  if(Object.prototype.hasOwnProperty.call(row,"구매일"))u.buyDate=String(row["구매일"]||"").slice(0,10);
-  if(Object.prototype.hasOwnProperty.call(row,"현재 평가가"))u.value=+String(row["현재 평가가"]||0).replace(/,/g,"")||0;
-  if(Object.prototype.hasOwnProperty.call(row,"판매상태"))u.sold=String(row["판매상태"]).trim()==="판매완료";
-  if(Object.prototype.hasOwnProperty.call(row,"판매가"))u.sell=+String(row["판매가"]||0).replace(/,/g,"")||0;
-  if(Object.prototype.hasOwnProperty.call(row,"판매일"))u.sellDate=String(row["판매일"]||"").slice(0,10);
-  if(Object.prototype.hasOwnProperty.call(row,"메모"))u.memo=String(row["메모"]||"");
-  if(Object.prototype.hasOwnProperty.call(row,"평가기준")){const m=String(row["평가기준"]||"");x.market.mode=m==="KREAM"?"kream":m==="국내 신품 최저가"?"shop":"manual"}
-  applied++;
- }
- save(false);pendingCollectionImport=null;const box=document.getElementById('collectionImportPreview');box.innerHTML=`<b>가져오기 완료</b><div class=muted>${applied}행 반영${ignored?` · 미일치 ${ignored}행 제외`:""}</div>`;draw();
-}
-function cancelCollectionImport(){pendingCollectionImport=null;const box=document.getElementById('collectionImportPreview');box.classList.remove('on');box.innerHTML=''}
-
-let collectionView=localStorage.getItem("legoCollectionView")||"compact";
-let collectionOpen={};
-try{collectionOpen=JSON.parse(localStorage.getItem("legoCollectionOpen")||"{}")||{}}catch(e){collectionOpen={}}
-function collectionIsOpen(n){
- const k=String(n);
- return Object.prototype.hasOwnProperty.call(collectionOpen,k)?!!collectionOpen[k]:collectionView==="detail";
-}
-function setCollectionView(mode){
- collectionView=mode==="detail"?"detail":"compact";
- collectionOpen={};
- localStorage.setItem("legoCollectionView",collectionView);
- localStorage.setItem("legoCollectionOpen","{}");
- draw();
-}
-function toggleCollectionSet(n){
- const k=String(n);
- collectionOpen[k]=!collectionIsOpen(k);
- localStorage.setItem("legoCollectionOpen",JSON.stringify(collectionOpen));
- draw();
-}
-function valuationSourceLabel(x){
- const m=x.market||{};
- if(m.mode==="kream"){
-   const date=m.kreamTradeAt?` · 체결 ${fmtTradeDate(m.kreamTradeAt)}`:(m.kreamDate?` · 체결 ${m.kreamDate}`:"");
-   const model=m.kreamModel&&String(m.kreamModel)!==String(x.set.number)?` · 모델 ${m.kreamModel}`:"";
-   return `KREAM 최근 체결가${model}${date}`;
- }
- if(m.mode==="shop") return `국내 신품 최저가${m.shopDate?` · ${m.shopDate}`:""}`;
- return "수동 입력";
-}
-
-let kreamHistoryCache={};
-let kreamChartSpan={};
-function kreamSpanLabel(span){return ({"1m":"1개월","3m":"3개월","6m":"6개월","1y":"1년","all":"전체"})[span]||span}
-function kreamChartSvg(data){
- const pts=(data||[]).filter(x=>+x.value>0&&x.time);
- if(!pts.length)return '<div class=muted>표시할 KREAM 시세 데이터가 없습니다.</div>';
- const w=700,h=240,left=64,right=18,top=16,bottom=34;
- const vals=pts.map(x=>+x.value),min0=Math.min(...vals),max0=Math.max(...vals);
- let min=min0,max=max0;if(min===max){min=Math.max(0,min*0.95);max=max*1.05||1}
- const margin=(max-min)*0.08;min=Math.max(0,min-margin);max=max+margin;
- const xy=pts.map((x,i)=>{
-   const px=pts.length===1?(left+(w-right))/2:left+(w-left-right)*(i/(pts.length-1));
-   const py=top+(h-top-bottom)*(1-(+x.value-min)/(max-min));return [px,py];
- });
- const poly=xy.map(p=>p.map(v=>v.toFixed(1)).join(',')).join(' ');
- const grid=[0,.5,1].map(fr=>{const y=top+(h-top-bottom)*fr;const val=max-(max-min)*fr;return `<line class=gridline x1="${left}" y1="${y}" x2="${w-right}" y2="${y}"></line><text x="4" y="${y+4}">${escHtml(won(val))}</text>`}).join('');
- const dots=xy.map((p,i)=>`<circle class=dot cx="${p[0]}" cy="${p[1]}" r="2.5"><title>${escHtml(String(pts[i].time).slice(0,10))} · ${won(pts[i].value)}</title></circle>`).join('');
- const start=String(pts[0].time).slice(0,10),end=String(pts[pts.length-1].time).slice(0,10);
- return `<svg class=kream-market-chart viewBox="0 0 ${w} ${h}" role=img aria-label="KREAM 시세 차트">${grid}<polyline class=line points="${poly}"></polyline>${dots}<text x="${left}" y="${h-8}">${escHtml(start)}</text><text x="${w-right}" y="${h-8}" text-anchor="end">${escHtml(end)}</text></svg>`;
-}
-function renderKreamHistory(number,span){
- const n=String(number),d=kreamHistoryCache[n];if(!d)return;
- const panel=document.getElementById('priceHistory-'+n);if(!panel)return;
- const charts=d.charts||{};const available=['1m','3m','6m','1y','all'].filter(k=>(charts[k]||[]).length);
- const use=(available.includes(span)?span:(available[0]||'all'));kreamChartSpan[n]=use;
- const tabs=['1m','3m','6m','1y','all'].map(k=>`<button type=button class="${k===use?'on':''}" onclick="renderKreamHistory('${n}','${k}')">${kreamSpanLabel(k)}</button>`).join('');
- const trades=d.items||[],latest=trades[0];
- const tradeRows=trades.slice(0,20).map(x=>`<div class=kream-trade-row><span class=date>${escHtml(x.trade_date||fmtTradeDate(x.trade_at))}${x.option_name?` · ${escHtml(x.option_name)}`:''}</span><b>${won(x.price_krw)}</b></div>`).join('');
- const note=d.trade_table_ready?(d.history_complete===false?'KREAM 전체 이력 API가 제한되어 공개/저장된 내역만 표시합니다.':`저장된 체결 ${d.trade_count||trades.length}건`):'Supabase KREAM 체결 이력 테이블이 없어 영구 저장되지 않습니다.';
- panel.innerHTML=`<div class=price-history-stats>${latest?`<span>최근 체결 ${won(latest.price_krw)}</span><span>${escHtml(latest.trade_date||fmtTradeDate(latest.trade_at))}</span>`:''}<span>${escHtml(note)}</span></div><div class=kream-chart-wrap><div class=kream-period-tabs>${tabs}</div>${kreamChartSvg(charts[use]||[])}</div><div class=kream-history-note>최근 체결 내역</div><div class=kream-trade-list>${tradeRows||'<div class=muted>저장된 체결 내역이 없습니다.</div>'}</div>`;
-}
-async function loadPriceHistory(number){
- const n=String(number),panel=document.getElementById('priceHistory-'+n);if(!panel)return;
- panel.innerHTML='<div class=muted>KREAM 체결/시세 이력 불러오는 중…</div>';
- try{
-   const r=await fetch('/api/kream-history/'+encodeURIComponent(n),{cache:'no-store'});
-   if(!r.ok)throw new Error('HTTP '+r.status);
-   const d=await r.json();kreamHistoryCache[n]=d;renderKreamHistory(n,kreamChartSpan[n]||'1m');
- }catch(e){panel.innerHTML='<div class=muted>KREAM 이력을 불러오지 못했습니다.</div>'}
-}
-
-function renderCollectionCard(x){
- const n=String(x.set.number);
- const open=collectionIsOpen(n);
- const held=x.u.filter(u=>!u.sold);
- const buySum=held.reduce((a,u)=>a+(+u.buy||0),0);
- const valueSum=held.reduce((a,u)=>a+(+u.value||0),0);
- const pnl=valueSum-buySum;
- const title=x.set.nameKo||x.set.name||"";
- const theme=String(x.set.theme||"").trim();
- const releaseDate=fmtReleaseDate(x.set.releaseDate||x.set.launchDate||"");
- const valuationSource=valuationSourceLabel(x);
- const msrp=x.market.krMsrp?`🇰🇷 정가 ${won(x.market.krMsrp)}`:(x.set.foreign?`🌎 해외 기준 ${x.set.foreign.price} ${x.set.foreign.currency}`:"정가 미확인");
- const encoded=btoa(unescape(encodeURIComponent(JSON.stringify(x.set))));
- const indexed=x.u.map((u,i)=>({u,i})).filter(({u})=>collectionStatusFilter==="held"?!u.sold:collectionStatusFilter==="sold"?u.sold:true);
- const details=indexed.map(({u,i})=>`<div class=unit><b>#${i+1}</b><span class=badge>${u.sold?"판매완료":"보유중"}</span><div class=grid><div class=field><label>상태</label><select onchange="upd('${n}',${i},'condition',this.value)"><option ${u.condition=="MISB"?"selected":""}>MISB</option><option ${u.condition=="NIB"?"selected":""}>NIB</option><option ${u.condition=="중고 Complete"?"selected":""}>중고 Complete</option></select></div><div class=field><label>판매상태</label><select onchange="upd('${n}',${i},'sold',this.value)"><option value=false ${!u.sold?"selected":""}>보유중</option><option value=true ${u.sold?"selected":""}>판매완료</option></select></div><div class=field><label>구매가</label><input value="${u.buy||""}" onchange="upd('${n}',${i},'buy',this.value)"></div><div class=field><label>현재 평가가</label><input value="${u.value||""}" ${x.market.mode!="manual"?"disabled":""} onchange="upd('${n}',${i},'value',this.value)"><div class="muted valuation-source">${valuationSource}</div></div><div class=field><label>구매일</label><input type=date value="${u.buyDate||u.date||""}" onchange="upd('${n}',${i},'buyDate',this.value)"></div><div class=field><label>판매가</label><input value="${u.sell||""}" onchange="upd('${n}',${i},'sell',this.value)"></div><div class=field><label>판매일</label><input type=date value="${u.sellDate||""}" onchange="upd('${n}',${i},'sellDate',this.value)"></div><div class=field><label>메모</label><input value="${u.memo||""}" onchange="upd('${n}',${i},'memo',this.value)"></div></div><button style="background:#444" onclick="del('${n}',${i})">삭제</button></div>`).join("");
- return `<div class="card collection-card" data-collection-number="${n}">
-   <div class=collection-summary>
-    <img src="${x.set.image||""}">
-    <div class=collection-summary-main>
-      <div class=collection-title>${n} ${title}</div>
-      ${theme?`<span class=theme-badge>${escHtml(theme)}</span>`:""}
-      <div class=collection-meta>${releaseDate?`출시일 ${releaseDate} · `:""}보유 ${held.length} / 전체 ${x.u.length}</div>
-      <div class=collection-money>
-        <span>${msrp}</span>
-        <span>평가 ${won(valueSum)} <span class="badge valuation-badge">${valuationSource}</span></span>
-        <span class="collection-pl ${pnl>=0?"positive":"negative"}">손익 ${pnl>=0?"+":""}${won(pnl)}</span>
+</header>
+<main>
+<section id="browse" class="page on">
+  <div class="hero">
+    <h2>전체 LEGO 카탈로그</h2>
+    <p>검색은 저장된 마스터 DB에서만 실행됩니다. 제품번호·한글명·영문명·별칭을 함께 찾습니다.</p>
+    <div class="searchbar"><input id="q" type="search" placeholder="예: 생텀, 76218, Sanctum" enterkeyhint="search"><button class="btn red" onclick="loadCatalog(1)">검색</button></div>
+    <div style="display:flex;gap:7px;margin-top:8px"><button class="btn ghost" onclick="toggleFilters()">필터 · 정렬</button><button class="btn ghost" onclick="resetFilters()">초기화</button></div>
+    <div id="filters" class="filters">
+      <div class="filtergrid">
+        <select id="theme"><option value="">모든 테마</option></select>
+        <select id="subtheme"><option value="">모든 서브테마</option></select>
+        <select id="year"><option value="">모든 출시연도</option></select>
+        <select id="category"><option value="">모든 카테고리</option></select>
+        <select id="sort" class="wide">
+          <option value="newest">최신 출시순</option><option value="oldest">오래된 순</option>
+          <option value="name">제품명순</option><option value="number">세트번호순</option>
+          <option value="pieces_desc">피스수 많은 순</option><option value="price_desc">정가 높은 순</option><option value="price_asc">정가 낮은 순</option>
+        </select>
       </div>
+      <button class="btn lav" style="width:100%;margin-top:8px" onclick="loadCatalog(1)">적용</button>
     </div>
-    <div class=collection-actions>
-      ${open?`<button type=button onclick='addOwnedEncoded("${encoded}")'>+1개</button>`:""}
-      <button type=button class=collection-toggle style="background:#34343a" onclick="toggleCollectionSet('${n}')">${open?"접기 ▲":"상세 ▼"}</button>
-    </div>
-   </div>
-   ${open?`<div class=collection-details><div class=price-history-box><button type=button onclick="loadPriceHistory('${n}')">📈 KREAM 시세·체결 이력</button><div id="priceHistory-${n}" class=price-history-panel></div></div>${details}</div>`:""}
- </div>`;
-}
-
-function wishlistTarget(number,value){
- const n=String(number);
- if(!wishlist[n])return;
- wishlist[n].target=+String(value||0).replace(/,/g,"")||0;
- saveWishlist();
-}
-function removeWishlist(number){
- delete wishlist[String(number)];
- saveWishlist();
-}
-function renderWishlistCard(w){
- const s=w.set||{},n=String(s.number||""),theme=String(s.theme||"");
- const target=+w.target||0,current=+w.current||0;
- const encoded=btoa(unescape(encodeURIComponent(JSON.stringify(s))));
- let gap="";
- if(target&&current){
-   const d=current-target;
-   gap=d<=0?`<div class=wishlist-hit>✓ 목표가 이하 ${won(Math.abs(d))}</div>`:`<div class=wishlist-gap>목표가까지 ${won(d)} 더 내려가면 도달</div>`;
- }
- return `<div class="card wishlist-card">
-  <img src="${s.image||""}">
-  <div class=wishlist-info>
-   <div class=wishlist-title>${escHtml(n)} ${escHtml(s.nameKo||s.name||"")}</div>
-   ${theme?`<span class=theme-badge>${escHtml(theme)}</span>`:""}
-   <div class=wishlist-price>${current?`현재 ${won(current)} <span class="badge valuation-badge">${escHtml(w.currentSource||"KREAM")}${w.currentModel&&String(w.currentModel)!==n?` · 모델 ${escHtml(w.currentModel)}`:""}${w.currentDate?` · ${escHtml(w.currentDate)}`:""}</span>`:"현재가 미확인"}</div>
-   ${gap}
-   <div class=wishlist-target>
-    <div class=field><label>목표 구매가</label><input inputmode=numeric value="${target||""}" placeholder="예: 350000" onchange="wishlistTarget('${n}',this.value)"></div>
-    <div class=field><label>현재 KREAM가</label><input value="${current||""}" disabled></div>
-   </div>
-   <div class=wishlist-actions>
-    <button type=button onclick="updateWishlistKream('${n}')">KREAM 확인</button>
-    <button type=button onclick='addOwnedEncoded("${encoded}")'>소장 등록</button>
-    <button type=button style="background:#444" onclick="removeWishlist('${n}')">삭제</button>
-   </div>
   </div>
- </div>`;
-}
-function drawWishlist(){
- const box=document.getElementById("wishlistList");
- if(!box)return;
- const rows=Object.values(wishlist).sort((a,b)=>String(a.set?.number||"").localeCompare(String(b.set?.number||""),undefined,{numeric:true}));
- box.innerHTML=rows.length?rows.map(renderWishlistCard).join(""):'<div class=empty>관심 등록된 제품이 없습니다.<br>검색 결과에서 ♡ 관심 등록을 눌러 추가할 수 있어요.</div>';
-}
-async function updateWishlistKream(number){
- const n=String(number),status=document.getElementById("wishlistStatus");
- if(!wishlist[n])return;
- if(status)status.textContent=`${n} KREAM 최근 체결가 확인 중…`;
- try{
-   const r=await fetch("/api/kream-market-batch",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({numbers:[n]})});
-   if(!r.ok)throw new Error("HTTP "+r.status);
-   const d=await r.json(),row=d.items?.[n];
-   if(row?.price){
-     wishlist[n].current=+row.price;
-     wishlist[n].currentSource=row.source||"KREAM 최근 체결가";
-     wishlist[n].currentDate=row.trade_date||"";
-     wishlist[n].currentTradeAt=row.trade_at||"";
-     wishlist[n].currentModel=row.model_number||n;
-     saveWishlist();
-     if(status)status.textContent=`${n} ${won(row.price)} 반영 · ${wishlist[n].currentDate}`;
-   }else if(status)status.textContent=`${n} KREAM 최근 체결가를 확인하지 못했습니다.`;
- }catch(e){
-   if(status)status.textContent=`${n} KREAM 조회 실패 · 기존 값 유지`;
- }
-}
-async function updateAllWishlistKream(){
- const nums=Object.keys(wishlist),btn=document.getElementById("wishlistKreamBtn"),status=document.getElementById("wishlistStatus");
- if(!nums.length){if(status)status.textContent="관심목록이 비어 있습니다.";return}
- if(btn)btn.disabled=true;
- let updated=0,failed=0;
- try{
-   for(let i=0;i<nums.length;i+=6){
-     const chunk=nums.slice(i,i+6);
-     if(status)status.textContent=`관심목록 KREAM 확인 중… ${i}/${nums.length}`;
-     const r=await fetch("/api/kream-market-batch",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({numbers:chunk})});
-     if(!r.ok)throw new Error("HTTP "+r.status);
-     const d=await r.json();
-     for(const [n,row] of Object.entries(d.items||{})){
-       if(!wishlist[n]||!row?.price)continue;
-       wishlist[n].current=+row.price;wishlist[n].currentSource=row.source||"KREAM 최근 체결가";
-       wishlist[n].currentDate=row.checked_at||today();wishlist[n].currentModel=row.model_number||n;
-       recordLocalPriceHistory(n,row);updated++;
-     }
-     failed+=(d.failed||[]).length;
-     saveWishlist(false);
-   }
-   drawWishlist();
-   if(status)status.textContent=`완료: ${updated}개 갱신${failed?` · 미확인 ${failed}개`:""} · ${today()}`;
- }catch(e){
-   saveWishlist(false);drawWishlist();
-   if(status)status.textContent=`관심가 업데이트 중단 · ${updated}개까지 반영`;
- }finally{if(btn)btn.disabled=false}
-}
+  <div class="toolbar"><div id="resultSummary" class="muted"></div><div class="muted">출시 완료 제품</div></div>
+  <div id="catalogList" class="cards"></div>
+  <div class="pager"><button id="prevBtn" class="btn ghost" onclick="loadCatalog(page-1)">이전</button><span id="pageInfo">1 / 1</span><button id="nextBtn" class="btn ghost" onclick="loadCatalog(page+1)">다음</button></div>
+</section>
 
+<section id="collection" class="page">
+  <div class="hero"><h2>내 소장목록</h2><p>한 행이 실물 한 개입니다. 구매가는 수정하기 전까지 정가가 기본값입니다.</p></div>
+  <div id="collectionSummary" class="summary"></div>
+  <div id="collectionList" class="cards"></div>
+</section>
 
-async function updateAllKreamValues(){
- const buttons=[document.getElementById("kreamBatchBtn"),document.getElementById("kreamSheetBtn")].filter(Boolean);
- const status=document.getElementById("kreamBatchStatus");
- const nums=Object.values(db).filter(x=>x.u.some(u=>!u.sold)).map(x=>String(x.set.number));
- if(!nums.length){status.textContent="보유 중인 세트가 없습니다.";return}
- buttons.forEach(b=>b.disabled=true);
- let updated=0,unchanged=0,failed=0,historyAdded=0,updatedSets=[];
- try{
-   status.textContent=`KREAM 체결가·과거 이력 확인 중… 0/${nums.length}`;
-   for(let i=0;i<nums.length;i+=4){
-     const chunk=nums.slice(i,i+4);
-     const r=await fetch("/api/kream-market-batch",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({numbers:chunk})});
-     if(!r.ok)throw new Error("KREAM update HTTP "+r.status);
-     const d=await r.json();
-     for(const [n,row] of Object.entries(d.items||{})){
-       if(!db[n]||!row?.price)continue;
-       db[n].market=db[n].market||{};
-       const oldAt=String(db[n].market.kreamTradeAt||"");
-       const newAt=String(row.trade_at||"");
-       historyAdded+=+row.history_added||0;
-       // A new completed transaction is required before overwriting valuation.
-       if(oldAt&&newAt&&new Date(newAt).getTime()<=new Date(oldAt).getTime()){
-         unchanged++;continue;
-       }
-       db[n].market.kream=+row.price;
-       db[n].market.kreamTradeAt=newAt;
-       db[n].market.kreamDate=row.trade_date||"";
-       db[n].market.kreamSource=row.source||"KREAM 최근 체결가";
-       db[n].market.kreamModel=row.model_number||n;
-       db[n].market.kreamProductId=row.product_id||"";
-       db[n].market.mode="kream";
-       db[n].u.filter(u=>!u.sold).forEach(u=>u.value=+row.price);
-       updated++;updatedSets.push(n);
-       if(row.charts)kreamHistoryCache[n]={...(kreamHistoryCache[n]||{}),charts:row.charts};
-     }
-     failed+=(d.failed||[]).length;
-     save(false);
-     status.textContent=`KREAM 체결가·과거 이력 확인 중… ${Math.min(i+chunk.length,nums.length)}/${nums.length}`;
-   }
-   draw();
-   const shown=updatedSets.slice(0,8).join(", "),more=updatedSets.length>8?` 외 ${updatedSets.length-8}개`:"";
-   status.textContent=`완료: 신규 체결 ${updated}개 반영${unchanged?` · 신규 체결 없음 ${unchanged}개`:""}${failed?` · 미확인 ${failed}개`:""}${historyAdded?` · 과거 체결 ${historyAdded}건 저장`:""}${shown?` · 반영: ${shown}${more}`:""}`;
- }catch(e){
-   save(false);draw();status.textContent=`일괄 업데이트 중단 · 신규 체결 ${updated}개까지 반영됨`;
- }finally{buttons.forEach(b=>b.disabled=false)}
-}
+<section id="wishlist" class="page">
+  <div class="hero"><h2>관심목록</h2><p>구매를 고민 중인 제품과 목표가를 따로 관리합니다.</p></div>
+  <div id="wishlistList" class="cards"></div>
+</section>
 
-function draw(){Object.keys(db).forEach(apply);let all=Object.values(db),shown=filterSortCollection(all);col.innerHTML=collectionLayout==="sheet"?renderCollectionSheet(shown):(shown.map(renderCollectionCard).join("")||"<div class=empty>조건에 맞는 등록 세트 없음</div>");
-refreshCollectionFilterControls(all,shown);
-cardLayoutBtn.classList.toggle("on",collectionLayout==="cards");
-sheetLayoutBtn.classList.toggle("on",collectionLayout==="sheet");
-cardModeTools.style.display=collectionLayout==="cards"?"grid":"none";
-sheetModeTools.style.display=collectionLayout==="sheet"?"grid":"none";
-compactViewBtn.classList.toggle("on",collectionView==="compact");
-detailViewBtn.classList.toggle("on",collectionView==="detail");
-drawWishlist();
-priceList.innerHTML=all.map(x=>{let m=x.market;return `<div class=card><b>${x.set.number} ${x.set.nameKo||x.set.name}</b>
-<div class=choice style="margin-top:9px"><button onclick="sourceSearch('lego','${x.set.number}')">LEGO Korea 검색 ↗</button><button onclick="sourceSearch('danawa','${x.set.number}')">다나와 검색 ↗</button><button onclick="sourceSearch('kream','${x.set.number}')">KREAM 검색 ↗</button></div>
-${x.set.foreign?`<div class=source>🌎 Brickset 해외 정가 ${x.set.foreign.price} ${x.set.foreign.currency}</div>`:""}
-${(x.set.releaseDate||x.set.launchDate)?`<div class=source>출시일: ${fmtReleaseDate(x.set.releaseDate||x.set.launchDate)}</div>`:""}<div class=source>현재 평가기준: ${valuationSourceLabel(x)}</div>
-<div class=field><label>평가가 기준</label><div class=choice><button class="${m.mode=="manual"?"on":""}" onclick="setMode('${x.set.number}','manual')">직접입력</button><button class="${m.mode=="kream"?"on":""}" onclick="setMode('${x.set.number}','kream')">KREAM</button><button class="${m.mode=="shop"?"on":""}" onclick="setMode('${x.set.number}','shop')">국내 신품 최저가</button></div></div><div class=grid><div class=field><label>LEGO Korea 한글 제품명</label><input value="${x.set.nameKo||""}" placeholder="${x.set.name||""}" onchange="setKoName('${x.set.number}',this.value)"></div><div class=field><label>한국 가격</label><input value="${m.krMsrp||""}" onchange="mkt('${x.set.number}','krMsrp',this.value)"></div><div class=field><label>LEGO Korea 확인일</label><input type=date value="${m.krMsrpDate||""}" onchange="mkt('${x.set.number}','krMsrpDate',this.value)"></div><div class=field><label>KREAM 참고가</label><input value="${m.kream||""}" onchange="mkt('${x.set.number}','kream',this.value)"></div><div class=field><label>KREAM 조회일</label><input type=date value="${m.kreamDate||""}" onchange="mkt('${x.set.number}','kreamDate',this.value)"></div><div class=field><label>국내 신품 최저가</label><input value="${m.shop||""}" onchange="mkt('${x.set.number}','shop',this.value)"></div><div class=field><label>쇼핑가 조회일</label><input type=date value="${m.shopDate||""}" onchange="mkt('${x.set.number}','shopDate',this.value)"></div><div class=field><label>출처/메모</label><input value="${m.sourceNote||""}" onchange="mkt('${x.set.number}','sourceNote',this.value)"></div></div></div>`}).join("")||"<div class=empty>등록된 세트 없음</div>";
-let u=all.flatMap(x=>x.u),h=u.filter(x=>!x.sold),s=u.filter(x=>x.sold),b=h.reduce((a,x)=>a+x.buy,0),v=h.reduce((a,x)=>a+x.value,0),rp=s.reduce((a,x)=>a+x.sell-x.buy,0);
-let lp=all.reduce((sum,x)=>sum+(+x.market.krMsrp||0)*x.u.filter(u=>!u.sold).length,0), saving=lp-b;
-cnt.textContent=h.length+"개";listVal.textContent=won(lp);buy.textContent=won(b);val.textContent=won(v);pl.textContent=(v-b>=0?"+":"")+won(v-b);pl.className=v-b>=0?"positive":"negative";soldCnt.textContent=s.length+"개";realPL.textContent=(rp>=0?"+":"")+won(rp);realPL.className=rp>=0?"positive":"negative";
-ccnt.textContent=h.length+"개";clist.textContent=won(lp);cbuy.textContent=won(b);csave.textContent=(saving>=0?"+":"")+won(saving);csave.className=saving>=0?"positive":"negative";cval.textContent=won(v);cpl.textContent=(v-b>=0?"+":"")+won(v-b);cpl.className=v-b>=0?"positive":"negative"}draw();
+<section id="settings" class="page">
+  <div class="card settings-card">
+    <h3>계정</h3><p id="authStatus">로그인하면 소장목록과 관심목록이 사용자별로 분리되어 어느 기기에서든 이어집니다.</p>
+    <div id="authLoggedOut" class="authbox">
+      <input id="email" type="email" placeholder="이메일">
+      <input id="password" type="password" placeholder="비밀번호 (6자 이상)">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><button class="btn blue" onclick="login()">로그인</button><button class="btn green" onclick="signup()">가입</button></div>
+    </div>
+    <div id="authLoggedIn" style="display:none"><button class="btn ghost" onclick="logout()">로그아웃</button></div>
+  </div>
+  <div class="card settings-card">
+    <h3>기존 v89 소장목록 가져오기</h3>
+    <p>같은 브라우저에 남아 있는 이전 LEGO Collector 데이터가 있으면 2.0 클라우드 소장목록으로 옮깁니다.</p>
+    <button class="btn yellow" onclick="importLegacy()">기존 데이터 가져오기</button>
+    <div id="legacyStatus" class="muted" style="margin-top:7px"></div>
+  </div>
+  <div class="card settings-card"><h3>자동 제품 업데이트</h3><p id="syncText">서버 동기화 상태를 확인 중입니다.</p></div>
+</section>
+</main>
+<nav class="nav">
+  <button class="on" data-page="browse" onclick="nav('browse')"><b>▦</b>전체</button>
+  <button data-page="collection" onclick="nav('collection')"><b>▣</b>소장</button>
+  <button data-page="wishlist" onclick="nav('wishlist')"><b>♡</b>관심</button>
+  <button data-page="settings" onclick="nav('settings')"><b>⚙</b>설정</button>
+</nav>
+</div>
 
-async function autoSyncOnLaunch(){
- const el=document.getElementById("syncStatus");
- try{
-   const nums=Object.keys(db||{});
-   if(!nums.length){el.textContent="✓ 자동 업데이트 준비됨";localStorage.setItem("legoLastSync",new Date().toISOString());return}
-   el.textContent="⏳ 소장품 최신정보 확인 중…";
-   const r=await fetch("/api/auto-sync",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({numbers:nums})});
-   if(!r.ok)throw new Error("auto-sync HTTP "+r.status);
-   const d=await r.json();
-   if(!d.ok)throw new Error(d.error||"sync failed");
-   const autoFailed=(d.failed||[]).length;
-   let changed=0;
-   for(const [n,u] of Object.entries(d.items||{})){
-     if(!db[n])continue;
-     const s=db[n].set||(db[n].set={});
-     for(const k of ["name","year","theme","pieces","image","LEGOCom"]){
-       if(u[k]!==undefined&&u[k]!==null){s[k]=u[k];changed++}
-     }
-     if(u.launchDate){s.releaseDate=u.launchDate;changed++}
-     if(u.kr){
-       if(u.kr.name_ko)s.nameKo=u.kr.name_ko;
-       if(u.kr.price){
-         db[n].market=db[n].market||{};
-         db[n].market.krMsrp=+u.kr.price;
-         db[n].market.krMsrpDate=u.kr.checked_at||today();
-         db[n].market.krMsrpSource=u.kr.source||"LEGO Korea";
-       }
-     }
-   }
-   el.textContent="⏳ LEGO Korea 한글명·정가 확인 중…";
-   try{
-     const kr=await fetch("/api/persistent-catalog-sync",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({numbers:nums})}).then(r=>r.json());
-     if(kr.total_available!==undefined)catalogStatus.textContent="🇰🇷 한국 영구 카탈로그 "+kr.total_available+"개";
-     for(const [n,k] of Object.entries(kr.items||{})){
-       if(!db[n]||!k)continue;
-       if(k.name_ko)db[n].set.nameKo=k.name_ko;
-       if(k.price){
-         db[n].market=db[n].market||{};
-         db[n].market.krMsrp=+k.price;
-         db[n].market.krMsrpDate=k.checked_at||today();
-         db[n].market.krMsrpSource=k.source||"LEGO Korea";
-       }
-     }
-   }catch(e){}
-   save();
-   const now=new Date();
-   localStorage.setItem("legoLastSync",now.toISOString());
-   el.textContent=(autoFailed?`✓ 자동 업데이트 완료 · 일부 ${autoFailed}개는 기존정보 유지 · `:"✓ 영구 카탈로그 자동 동기화 완료 · ")+now.toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit"});
-   try{render()}catch(e){}
- }catch(e){
-   el.textContent="⚠ 자동 업데이트 실패 · 기존 저장정보 사용";
- }
-}
-window.addEventListener("load",()=>setTimeout(autoSyncOnLaunch,300));
-
-</script>
-<script>
-function legoPriceSourceLabel(source){
-  const s=String(source||"");
-  if (/LEGO Korea/i.test(s)) return "가격 출처: LEGO Korea";
-  if (/KREAM/i.test(s)) return "가격 출처: KREAM";
-  if (/Brickset/i.test(s)) return "가격 출처: Brickset";
-  if (/국내|한국 카탈로그/i.test(s)) return "가격 출처: 국내 판매자료";
-  return s ? "가격 출처: "+s : "";
-}
-</script>
+<div id="detailModal" class="modal" onclick="modalBackdrop(event,'detailModal')"><div class="sheet" id="detailSheet"></div></div>
+<div id="editModal" class="modal" onclick="modalBackdrop(event,'editModal')"><div class="sheet" id="editSheet"></div></div>
 
 <script>
-(async()=>{try{const r=await fetch('/api/kr-catalog-stats',{cache:'no-store'}),d=await r.json();if(!d.ok)return;
-const w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);let n;
-while(n=w.nextNode()){if(n.nodeValue&&/한국 영구 카탈로그\s+\d+개/.test(n.nodeValue)){
-n.nodeValue=n.nodeValue.replace(/한국 영구 카탈로그\s+\d+개/,`한국 영구 카탈로그 ${d.effective_count}개`);break;}}}catch(e){}})();
-</script>
+const $=id=>document.getElementById(id);
+const won=n=>n==null||n===""?"미확인":"₩"+Math.round(+n||0).toLocaleString("ko-KR");
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmtDate=s=>String(s||"").slice(0,10);
+let page=1,pages=1,currentDetail=null,collection=[],wishlist=[],session=null;
 
-<script>
-(function enableKeyboardSearch(){
-  const input=document.getElementById('q');
-  if(!input) return;
-  input.setAttribute('enterkeyhint','search');
-  input.setAttribute('inputmode','search');
-  input.addEventListener('keydown',function(e){
-    if(e.key==='Enter'){
-      e.preventDefault();
-      if(typeof go==='function') go();
-      input.blur();
-    }
-  });
-})();
-</script>
+function loadSession(){try{session=JSON.parse(localStorage.getItem("lego2Session")||"null")}catch(e){session=null}}
+function saveSession(s){session=s; s?localStorage.setItem("lego2Session",JSON.stringify(s)):localStorage.removeItem("lego2Session"); updateAuthUI()}
+function token(){return session?.access_token||""}
 
+async function api(url,opt={}){
+  opt.headers={...(opt.headers||{})};
+  if(token())opt.headers.Authorization="Bearer "+token();
+  if(opt.body && typeof opt.body!=="string"){opt.headers["Content-Type"]="application/json";opt.body=JSON.stringify(opt.body)}
+  let r=await fetch(url,opt);
+  if(r.status===401 && session?.refresh_token){
+    const rr=await fetch("/api/v2/auth/refresh",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({refresh_token:session.refresh_token})});
+    const rd=await rr.json().catch(()=>({}));
+    if(rr.ok&&rd.ok&&rd.data?.access_token){saveSession(rd.data);opt.headers.Authorization="Bearer "+token();r=await fetch(url,opt)}
+  }
+  const d=await r.json().catch(()=>({ok:false,error:"invalid_response"}));
+  if(!r.ok) d.httpStatus=r.status;
+  return d;
+}
+function requireLogin(){if(!token()){nav("settings");alert("소장목록과 관심목록은 로그인 후 사용할 수 있어요.");return false}return true}
 
+function nav(id){
+  document.querySelectorAll(".page").forEach(x=>x.classList.toggle("on",x.id===id));
+  document.querySelectorAll(".nav button").forEach(x=>x.classList.toggle("on",x.dataset.page===id));
+  if(id==="collection")loadCollection();
+  if(id==="wishlist")loadWishlist();
+  if(id==="settings"){updateAuthUI();loadSyncStatus()}
+  window.scrollTo({top:0,behavior:"smooth"})
+}
+function toggleFilters(){$("filters").classList.toggle("on")}
+function resetFilters(){["q","theme","subtheme","year","category"].forEach(id=>$(id).value="");$("sort").value="newest";loadCatalog(1)}
+$("q").addEventListener("keydown",e=>{if(e.key==="Enter")loadCatalog(1)});
 
-<script>
-document.addEventListener("DOMContentLoaded",()=>{
- const f=document.getElementById("collectionFindInput");
- if(f)f.addEventListener("keydown",e=>{
-   if(e.key==="Enter"){
-     e.preventDefault();
-     findCollectionItem();
-     f.blur();
-   }
- });
- updateScrollTopButton();
-});
-</script>
+async function init(){
+  loadSession();updateAuthUI();
+  if("serviceWorker" in navigator)navigator.serviceWorker.register("/sw.js").catch(()=>{});
+  const h=await api("/api/v2/health");
+  $("catalogState").textContent=h.catalog_ready?`마스터 DB ${(+h.catalog_count||0).toLocaleString()}개 · 검색 즉시`:"마스터 DB 준비 필요";
+  loadFacets();loadCatalog(1);loadSyncStatus();
+}
+async function loadFacets(){
+  const d=await api("/api/v2/catalog-facets"); if(!d.ok)return;
+  fill($("theme"),d.themes);fill($("subtheme"),d.subthemes);fill($("year"),d.years);fill($("category"),d.categories)
+}
+function fill(sel,arr){const first=sel.options[0];sel.innerHTML="";sel.appendChild(first);(arr||[]).forEach(v=>{const o=document.createElement("option");o.value=v;o.textContent=v;sel.appendChild(o)})}
 
-<script>
-document.addEventListener("DOMContentLoaded",()=>{
- const mq=document.getElementById("masterQ");if(mq)mq.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();loadMasterCatalog(1);mq.blur()}});
- refreshMasterSyncStatus().then(d=>{if(d?.table_ready&&!d.initial_complete&&!d.running)startMasterBackgroundSync()});
- setInterval(()=>{if(document.getElementById("allsets")?.classList.contains("on"))refreshMasterSyncStatus()},15000);
-});
+async function loadCatalog(p=1){
+  page=Math.max(1,p||1);$("catalogList").innerHTML='<div class="card empty">카탈로그 불러오는 중…</div>';
+  const sp=new URLSearchParams({page,page_size:40,q:$("q").value.trim(),theme:$("theme").value,subtheme:$("subtheme").value,year:$("year").value,category:$("category").value,sort:$("sort").value,released:"true"});
+  const d=await api("/api/v2/catalog?"+sp);
+  if(!d.ok){$("catalogList").innerHTML=`<div class="card empty">${d.error==="master_table_missing"?"2.0 SQL을 먼저 실행해 주세요.":"카탈로그 조회 실패"}</div>`;return}
+  pages=d.pages||1;$("resultSummary").textContent=`총 ${(d.total||0).toLocaleString()}개`;$("pageInfo").textContent=`${page} / ${pages}`;$("prevBtn").disabled=page<=1;$("nextBtn").disabled=page>=pages;
+  $("catalogList").innerHTML=(d.items||[]).map(productCard).join("")||'<div class="card empty">조건에 맞는 제품이 없습니다.</div>';
+}
+function productCard(x){
+  const img=x.thumbnail_url||x.image_url||"";
+  const name=x.name_ko||x.name_en||"이름 미확인";
+  const source=x.name_ko_source||"";
+  return `<div class="card product">
+    <img src="${esc(img)}" loading="lazy" onerror="this.style.visibility='hidden'">
+    <div><div class="title">${esc(name)}</div>${x.name_ko&&x.name_en?`<div class="sub">${esc(x.name_en)}</div>`:""}
+    <div class="meta">#${esc(x.set_number)} · ${esc(x.theme||"기타")} · ${esc(x.year||"")}${x.pieces?` · ${(+x.pieces).toLocaleString()} pcs`:""}</div>
+    <div class="price">${x.price_krw?won(x.price_krw):(x.retail_us?`한국 정가 미확인 · US $${x.retail_us}`:"정가 미확인")}</div>
+    ${source?`<span class="badge ${source.includes("자동 번역")?"":"official"}">${esc(source)}</span>`:""}
+    <div class="product-actions"><button class="btn lav" onclick="openDetail('${esc(x.set_number)}')">상세</button><button class="btn red" onclick="quickAdd('${esc(x.set_number)}')">소장 +</button><button class="btn green" onclick="addWish('${esc(x.set_number)}')">♡ 관심</button></div>
+    </div></div>`;
+}
+async function openDetail(n){
+  $("detailModal").classList.add("on");$("detailSheet").innerHTML='<div class="empty">제품 정보 불러오는 중…</div>';
+  const d=await api("/api/v2/catalog/"+encodeURIComponent(n));if(!d.ok){$("detailSheet").innerHTML='<button class="close" onclick="closeModal(\'detailModal\')">×</button><div class="empty">제품 정보를 찾지 못했습니다.</div>';return}
+  currentDetail=d.item;renderDetail(d.item)
+}
+function renderDetail(x){
+  const img=x.image_url||x.thumbnail_url||x.bricklink_image_url||"";
+  const trades=x.kream_trades||[],latest=x.kream_latest;
+  $("detailSheet").innerHTML=`<button class="close" onclick="closeModal('detailModal')">×</button>
+  <div class="detail-top"><img src="${esc(img)}"><div><h3>${esc(x.name_ko||x.name_en||"")}</h3>${x.name_ko&&x.name_en?`<div class="sub">${esc(x.name_en)}</div>`:""}
+  <div class="meta">#${esc(x.set_number)} · ${esc(x.theme||"")}${x.subtheme?` / ${esc(x.subtheme)}`:""}<br>${esc(x.year||"")}${x.pieces?` · ${(+x.pieces).toLocaleString()} pcs`:""}${x.minifigs?` · 미니피겨 ${x.minifigs}`:""}${x.launch_date?`<br>출시일 ${fmtDate(x.launch_date)}`:""}</div>
+  <div class="price">${x.price_krw?`한국 정가 ${won(x.price_krw)}`:(x.retail_us?`한국 정가 미확인 · US MSRP $${x.retail_us}`:"정가 미확인")}</div>${latest?`<div class="sub">KREAM 최근 체결 ${won(latest.price_krw)} · ${fmtDate(latest.trade_at)}</div>`:""}${x.brickset_url?`<div class="sub"><a href="${esc(x.brickset_url)}" target="_blank" rel="noopener">제품 데이터 출처 보기</a></div>`:""}</div></div>
+  ${historyChart(trades)}
+  <div class="product-actions" style="margin-top:14px"><button class="btn red" onclick="quickAdd('${esc(x.set_number)}')">소장목록 등록</button><button class="btn green" onclick="addWish('${esc(x.set_number)}')">관심목록 등록</button></div>`;
+}
+function historyChart(trades){
+  if(!trades||trades.length<2)return "";
+  const a=[...trades].reverse().filter(x=>+x.price_krw>0);if(a.length<2)return "";
+  const vals=a.map(x=>+x.price_krw),min=Math.min(...vals),max=Math.max(...vals),span=Math.max(1,max-min),w=600,h=135,pad=8;
+  const pts=a.map((x,i)=>`${pad+(w-2*pad)*(i/(a.length-1))},${pad+(h-2*pad)*(1-(+x.price_krw-min)/span)}`).join(" ");
+  return `<div class="chart"><b>KREAM 체결가 변동</b><svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><polyline fill="none" stroke="#8e7bd1" stroke-width="4" points="${pts}"/></svg><div class="chart-labels"><span>${fmtDate(a[0].trade_at)} · ${won(a[0].price_krw)}</span><span>${fmtDate(a[a.length-1].trade_at)} · ${won(a[a.length-1].price_krw)}</span></div></div>`;
+}
+function closeModal(id){$(id).classList.remove("on")}
+function modalBackdrop(e,id){if(e.target.id===id)closeModal(id)}
+
+async function quickAdd(n){
+  if(!requireLogin())return;
+  const d=await api("/api/v2/catalog/"+encodeURIComponent(n));if(!d.ok)return alert("제품 정보를 불러오지 못했습니다.");
+  const x=d.item;currentDetail=x;
+  $("editModal").classList.add("on");
+  $("editSheet").innerHTML=`<button class="close" onclick="closeModal('editModal')">×</button><h3>소장목록 등록</h3><div class="notice">구매가를 비워두면 정가 ${won(x.price_krw)}가 자동으로 들어갑니다.</div>
+  <div class="formgrid">
+    <div><div class="label">상태</div><select id="newCondition"><option>미개봉</option><option>개봉</option><option>중고 Complete</option></select></div>
+    <div><div class="label">구매일</div><input id="newDate" type="date"></div>
+    <div><div class="label">구매가</div><input id="newPrice" inputmode="numeric" placeholder="${x.price_krw||"정가 미확인"}"></div>
+    <div class="wide"><div class="label">메모</div><textarea id="newMemo" rows="2"></textarea></div>
+  </div><button class="btn red" style="width:100%;margin-top:10px" onclick="submitAdd('${esc(n)}')">등록</button>`;
+}
+async function submitAdd(n){
+  const raw=$("newPrice").value.trim();
+  const d=await api("/api/v2/collection",{method:"POST",body:{set_number:n,condition:$("newCondition").value,purchase_date:$("newDate").value||null,purchase_price:raw===""?null:+raw.replace(/,/g,""),memo:$("newMemo").value}});
+  if(!d.ok)return alert("등록 실패: "+(d.error||"오류"));
+  closeModal("editModal");closeModal("detailModal");await loadCollection();nav("collection")
+}
+
+async function loadCollection(){
+  if(!token()){$("collectionSummary").innerHTML="";$("collectionList").innerHTML='<div class="card empty">로그인하면 개인 소장목록을 사용할 수 있어요.<br><br><button class="btn" onclick="nav(\'settings\')">로그인</button></div>';return}
+  const d=await api("/api/v2/collection");if(!d.ok){$("collectionList").innerHTML='<div class="card empty">소장목록을 불러오지 못했습니다.</div>';return}
+  collection=d.items||[];drawCollection()
+}
+function productOf(row){return row.lego_master_catalog||{}}
+function drawCollection(){
+  const held=collection.filter(x=>!x.sold),unknownMsrp=held.filter(x=>productOf(x).price_krw==null).length,unknownBuy=held.filter(x=>x.purchase_price==null).length;
+  const msrp=held.reduce((a,x)=>a+(+productOf(x).price_krw||0),0),buy=held.reduce((a,x)=>a+(+x.purchase_price||0),0),value=held.reduce((a,x)=>a+(+x.current_value||0),0),pl=value-buy;
+  $("collectionSummary").innerHTML=`<div class="stat"><small>보유수량</small><b>${held.length}개</b></div><div class="stat"><small>정가 기준 총액${unknownMsrp?` · 미확인 ${unknownMsrp}개 제외`:""}</small><b>${won(msrp)}</b></div><div class="stat"><small>실제 구매가 총액${unknownBuy?` · 미확인 ${unknownBuy}개 제외`:""}</small><b>${won(buy)}</b></div><div class="stat"><small>현재 평가금액</small><b>${won(value)}</b></div><div class="stat"><small>평가 손익</small><b>${pl>=0?"+":""}${won(pl)}</b></div>`;
+  $("collectionList").innerHTML=collection.map(collectionCard).join("")||'<div class="card empty">등록된 제품이 없습니다.</div>';
+}
+function collectionCard(x){
+  const p=productOf(x),img=p.thumbnail_url||p.image_url||"",pl=(+x.current_value||0)-(+x.purchase_price||0);
+  return `<div class="card collection-card"><div class="collection-head"><img src="${esc(img)}"><div><div class="title">${esc(p.name_ko||p.name_en||x.set_number)}</div><div class="sub">#${esc(x.set_number)} · ${esc(p.theme||"")}${p.launch_date?` · 출시 ${fmtDate(p.launch_date)}`:""}</div>
+  <div class="collection-money"><span class="pill">정가 ${won(p.price_krw)}</span><span class="pill">구매 ${won(x.purchase_price)}</span><span class="pill">평가 ${won(x.current_value)}</span><span class="pill">손익 ${pl>=0?"+":""}${won(pl)}</span></div></div></div>
+  <div class="row-actions"><button class="btn ghost" onclick="editCollection('${x.id}')">수정</button><button class="btn ghost" onclick="openDetail('${esc(x.set_number)}')">제품정보</button><button class="btn ghost" onclick="deleteCollection('${x.id}')">삭제</button></div></div>`;
+}
+function editCollection(id){
+  const x=collection.find(v=>v.id===id);if(!x)return;const p=productOf(x);
+  $("editModal").classList.add("on");$("editSheet").innerHTML=`<button class="close" onclick="closeModal('editModal')">×</button><h3>${esc(p.name_ko||p.name_en||x.set_number)}</h3>
+  <div class="formgrid"><div><div class="label">상태</div><select id="eCondition"><option ${x.condition==="미개봉"?"selected":""}>미개봉</option><option ${x.condition==="개봉"?"selected":""}>개봉</option><option ${x.condition==="중고 Complete"?"selected":""}>중고 Complete</option></select></div>
+  <div><div class="label">구매일</div><input id="eDate" type="date" value="${esc(x.purchase_date||"")}"></div>
+  <div><div class="label">구매가</div><input id="ePrice" inputmode="numeric" value="${x.purchase_price??""}"></div>
+  <div><div class="label">현재 평가가</div><input id="eValue" inputmode="numeric" value="${x.current_value??""}"></div>
+  <div class="wide"><div class="label">메모</div><textarea id="eMemo" rows="3">${esc(x.memo||"")}</textarea></div></div>
+  <button class="btn red" style="width:100%;margin-top:10px" onclick="saveCollection('${id}')">저장</button>`;
+}
+async function saveCollection(id){
+  const body={condition:$("eCondition").value,purchase_date:$("eDate").value||null,purchase_price:+$("ePrice").value.replace(/,/g,"")||0,current_value:+$("eValue").value.replace(/,/g,"")||0,memo:$("eMemo").value};
+  const d=await api("/api/v2/collection/"+id,{method:"PATCH",body});if(!d.ok)return alert("수정 실패");closeModal("editModal");loadCollection()
+}
+async function deleteCollection(id){if(!confirm("이 소장 항목을 삭제할까요?"))return;const d=await api("/api/v2/collection/"+id,{method:"DELETE"});if(d.ok)loadCollection()}
+
+async function addWish(n){
+  if(!requireLogin())return;
+  const d=await api("/api/v2/wishlist",{method:"POST",body:{set_number:n}});if(!d.ok)return alert("관심 등록 실패");alert("관심목록에 등록했습니다.");loadWishlist()
+}
+async function loadWishlist(){
+  if(!token()){$("wishlistList").innerHTML='<div class="card empty">로그인하면 개인 관심목록을 사용할 수 있어요.</div>';return}
+  const d=await api("/api/v2/wishlist");if(!d.ok)return;$("wishlistList").innerHTML=(d.items||[]).map(x=>{const p=x.lego_master_catalog||{};return `<div class="card product"><img src="${esc(p.thumbnail_url||p.image_url||"")}"><div><div class="title">${esc(p.name_ko||p.name_en||x.set_number)}</div><div class="meta">#${esc(x.set_number)} · ${esc(p.theme||"")} · ${esc(p.year||"")}</div><div class="price">${won(p.price_krw)}</div><div class="product-actions"><button class="btn lav" onclick="openDetail('${esc(x.set_number)}')">상세</button><button class="btn ghost" onclick="deleteWish('${x.id}')">삭제</button></div></div></div>`}).join("")||'<div class="card empty">관심 제품이 없습니다.</div>';
+}
+async function deleteWish(id){const d=await api("/api/v2/wishlist/"+id,{method:"DELETE"});if(d.ok)loadWishlist()}
+
+function updateAuthUI(){
+  const logged=!!token();$("authLoggedOut").style.display=logged?"none":"grid";$("authLoggedIn").style.display=logged?"block":"none";
+  $("accountChip").textContent=logged?(session?.user?.email||"로그인됨"):"로그인";
+  $("authStatus").textContent=logged?`${session?.user?.email||"계정"}으로 로그인되어 있습니다.`:"로그인하면 소장목록과 관심목록이 사용자별로 분리되어 어느 기기에서든 이어집니다.";
+}
+async function login(){
+  const d=await api("/api/v2/auth/login",{method:"POST",body:{email:$("email").value.trim(),password:$("password").value}});
+  if(!d.ok)return alert("로그인 실패");saveSession(d.data);await loadCollection();alert("로그인했습니다.")
+}
+async function signup(){
+  const d=await api("/api/v2/auth/signup",{method:"POST",body:{email:$("email").value.trim(),password:$("password").value}});
+  if(!d.ok)return alert("가입 실패: "+(d.error||"오류"));
+  if(d.data?.access_token){saveSession(d.data);alert("가입과 로그인이 완료됐습니다.")}else alert("가입 완료. 이메일 확인이 켜져 있으면 확인 후 로그인해 주세요.")
+}
+function logout(){saveSession(null);collection=[];wishlist=[];nav("browse")}
+
+function findLegacy(){
+  const keys=["legov89","legov88","legov87","legov86","legov85","legov84","legov83","legov82","legov81","legov80","legov79","legov78","legov77","legov76","legov75","legov74","legov73","legov72","legov71","legov70"];
+  for(const k of keys){try{const v=JSON.parse(localStorage.getItem(k)||"null");if(v&&Object.keys(v).length)return {key:k,data:v}}catch(e){}}
+  return null
+}
+async function importLegacy(){
+  if(!requireLogin())return;
+  const old=findLegacy();if(!old){$("legacyStatus").textContent="이 브라우저에서 이전 소장 데이터를 찾지 못했습니다.";return}
+  const items=[];
+  Object.values(old.data).forEach(x=>{const n=String(x?.set?.number||"").split("-")[0];if(!n)return;(x.u||x.units||[]).forEach(u=>items.push({set_number:n,condition:u.condition||"미개봉",purchase_price:+u.buy>0?+u.buy:null,purchase_date:u.buyDate||u.date||null,current_value:+u.value>0?+u.value:(+x?.market?.kream||+x?.market?.krMsrp||null),valuation_source:x?.market?.kreamSource||"기존 앱 가져오기",sold:!!u.sold,sold_price:+u.sell||null,sold_date:u.sellDate||null,memo:u.memo||""}))});
+  if(!items.length){$("legacyStatus").textContent="가져올 실물 항목이 없습니다.";return}
+  if(!confirm(`${old.key}에서 ${items.length}개 항목을 가져올까요?`))return;
+  $("legacyStatus").textContent="가져오는 중…";const d=await api("/api/v2/collection/import",{method:"POST",body:{items}});
+  $("legacyStatus").textContent=d.ok?`${d.imported}개 가져오기 완료${d.failed?` · ${d.failed}개 실패`:""}`:`가져오기 실패: ${d.error||"오류"}`;if(d.ok)loadCollection()
+}
+async function loadSyncStatus(){
+  const d=await api("/api/v2/catalog-sync-status");if(!d.ok)return;
+  $("syncText").textContent=d.table_ready?`마스터 DB ${(d.count||0).toLocaleString()}개 · ${d.initial_complete?"초기 전체 수집 완료":"초기 전체 수집 진행 중"}${d.last_sync_date?` · 최근 갱신 ${d.last_sync_date}`:""} · 이후 업데이트는 서버 예약 작업이 담당합니다.`:"2.0 Supabase SQL 실행 후 자동 수집을 시작할 수 있습니다.";
+}
+init();
 </script>
 </body></html>
