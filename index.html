@@ -138,6 +138,8 @@ const $=id=>document.getElementById(id);
 const won=n=>n==null||n===""?"미확인":"₩"+Math.round(+n||0).toLocaleString("ko-KR");
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const fmtDate=s=>String(s||"").slice(0,10);
+const verifiedKo=x=>x?.name_ko && !String(x?.name_ko_source||"").includes("자동 번역") ? x.name_ko : "";
+const displayName=x=>verifiedKo(x)||x?.name_en||x?.set_number||"이름 미확인";
 let page=1,pages=1,currentDetail=null,collection=[],wishlist=[],session=null;
 
 function loadSession(){try{session=JSON.parse(localStorage.getItem("lego2Session")||"null")}catch(e){session=null}}
@@ -195,11 +197,11 @@ async function loadCatalog(p=1){
 }
 function productCard(x){
   const img=x.thumbnail_url||x.image_url||"";
-  const name=x.name_ko||x.name_en||"이름 미확인";
-  const source=x.name_ko_source||"";
+  const ko=verifiedKo(x),name=displayName(x);
+  const source=ko?(x.name_ko_source||""):"";
   return `<div class="card product">
     <img src="${esc(img)}" loading="lazy" onerror="this.style.visibility='hidden'">
-    <div><div class="title">${esc(name)}</div>${x.name_ko&&x.name_en?`<div class="sub">${esc(x.name_en)}</div>`:""}
+    <div><div class="title">${esc(name)}</div>${ko&&x.name_en?`<div class="sub">${esc(x.name_en)}</div>`:""}
     <div class="meta">#${esc(x.set_number)} · ${esc(x.theme||"기타")} · ${esc(x.year||"")}${x.pieces?` · ${(+x.pieces).toLocaleString()} pcs`:""}</div>
     <div class="price">${x.price_krw?won(x.price_krw):(x.retail_us?`한국 정가 미확인 · US $${x.retail_us}`:"정가 미확인")}</div>
     ${source?`<span class="badge ${source.includes("자동 번역")?"":"official"}">${esc(source)}</span>`:""}
@@ -215,7 +217,7 @@ function renderDetail(x){
   const img=x.image_url||x.thumbnail_url||x.bricklink_image_url||"";
   const trades=x.kream_trades||[],latest=x.kream_latest;
   $("detailSheet").innerHTML=`<button class="close" onclick="closeModal('detailModal')">×</button>
-  <div class="detail-top"><img src="${esc(img)}"><div><h3>${esc(x.name_ko||x.name_en||"")}</h3>${x.name_ko&&x.name_en?`<div class="sub">${esc(x.name_en)}</div>`:""}
+  <div class="detail-top"><img src="${esc(img)}"><div><h3>${esc(displayName(x))}</h3>${verifiedKo(x)&&x.name_en?`<div class="sub">${esc(x.name_en)}</div>`:""}
   <div class="meta">#${esc(x.set_number)} · ${esc(x.theme||"")}${x.subtheme?` / ${esc(x.subtheme)}`:""}<br>${esc(x.year||"")}${x.pieces?` · ${(+x.pieces).toLocaleString()} pcs`:""}${x.minifigs?` · 미니피겨 ${x.minifigs}`:""}${x.launch_date?`<br>출시일 ${fmtDate(x.launch_date)}`:""}</div>
   <div class="price">${x.price_krw?`한국 정가 ${won(x.price_krw)}`:(x.retail_us?`한국 정가 미확인 · US MSRP $${x.retail_us}`:"정가 미확인")}</div>${latest?`<div class="sub">KREAM 최근 체결 ${won(latest.price_krw)} · ${fmtDate(latest.trade_at)}</div>`:""}${x.brickset_url?`<div class="sub"><a href="${esc(x.brickset_url)}" target="_blank" rel="noopener">제품 데이터 출처 보기</a></div>`:""}</div></div>
   ${historyChart(trades)}
@@ -265,13 +267,13 @@ function drawCollection(){
 }
 function collectionCard(x){
   const p=productOf(x),img=p.thumbnail_url||p.image_url||"",pl=(+x.current_value||0)-(+x.purchase_price||0);
-  return `<div class="card collection-card"><div class="collection-head"><img src="${esc(img)}"><div><div class="title">${esc(p.name_ko||p.name_en||x.set_number)}</div><div class="sub">#${esc(x.set_number)} · ${esc(p.theme||"")}${p.launch_date?` · 출시 ${fmtDate(p.launch_date)}`:""}</div>
+  return `<div class="card collection-card"><div class="collection-head"><img src="${esc(img)}"><div><div class="title">${esc(displayName(p))}</div><div class="sub">#${esc(x.set_number)} · ${esc(p.theme||"")}${p.launch_date?` · 출시 ${fmtDate(p.launch_date)}`:""}</div>
   <div class="collection-money"><span class="pill">정가 ${won(p.price_krw)}</span><span class="pill">구매 ${won(x.purchase_price)}</span><span class="pill">평가 ${won(x.current_value)}</span><span class="pill">손익 ${pl>=0?"+":""}${won(pl)}</span></div></div></div>
   <div class="row-actions"><button class="btn ghost" onclick="editCollection('${x.id}')">수정</button><button class="btn ghost" onclick="openDetail('${esc(x.set_number)}')">제품정보</button><button class="btn ghost" onclick="deleteCollection('${x.id}')">삭제</button></div></div>`;
 }
 function editCollection(id){
   const x=collection.find(v=>v.id===id);if(!x)return;const p=productOf(x);
-  $("editModal").classList.add("on");$("editSheet").innerHTML=`<button class="close" onclick="closeModal('editModal')">×</button><h3>${esc(p.name_ko||p.name_en||x.set_number)}</h3>
+  $("editModal").classList.add("on");$("editSheet").innerHTML=`<button class="close" onclick="closeModal('editModal')">×</button><h3>${esc(displayName(p))}</h3>
   <div class="formgrid"><div><div class="label">상태</div><select id="eCondition"><option ${x.condition==="미개봉"?"selected":""}>미개봉</option><option ${x.condition==="개봉"?"selected":""}>개봉</option><option ${x.condition==="중고 Complete"?"selected":""}>중고 Complete</option></select></div>
   <div><div class="label">구매일</div><input id="eDate" type="date" value="${esc(x.purchase_date||"")}"></div>
   <div><div class="label">구매가</div><input id="ePrice" inputmode="numeric" value="${x.purchase_price??""}"></div>
@@ -291,7 +293,7 @@ async function addWish(n){
 }
 async function loadWishlist(){
   if(!token()){$("wishlistList").innerHTML='<div class="card empty">로그인하면 개인 관심목록을 사용할 수 있어요.</div>';return}
-  const d=await api("/api/v2/wishlist");if(!d.ok)return;$("wishlistList").innerHTML=(d.items||[]).map(x=>{const p=x.lego_master_catalog||{};return `<div class="card product"><img src="${esc(p.thumbnail_url||p.image_url||"")}"><div><div class="title">${esc(p.name_ko||p.name_en||x.set_number)}</div><div class="meta">#${esc(x.set_number)} · ${esc(p.theme||"")} · ${esc(p.year||"")}</div><div class="price">${won(p.price_krw)}</div><div class="product-actions"><button class="btn lav" onclick="openDetail('${esc(x.set_number)}')">상세</button><button class="btn ghost" onclick="deleteWish('${x.id}')">삭제</button></div></div></div>`}).join("")||'<div class="card empty">관심 제품이 없습니다.</div>';
+  const d=await api("/api/v2/wishlist");if(!d.ok)return;$("wishlistList").innerHTML=(d.items||[]).map(x=>{const p=x.lego_master_catalog||{};return `<div class="card product"><img src="${esc(p.thumbnail_url||p.image_url||"")}"><div><div class="title">${esc(displayName(p))}</div><div class="meta">#${esc(x.set_number)} · ${esc(p.theme||"")} · ${esc(p.year||"")}</div><div class="price">${won(p.price_krw)}</div><div class="product-actions"><button class="btn lav" onclick="openDetail('${esc(x.set_number)}')">상세</button><button class="btn ghost" onclick="deleteWish('${x.id}')">삭제</button></div></div></div>`}).join("")||'<div class="card empty">관심 제품이 없습니다.</div>';
 }
 async function deleteWish(id){const d=await api("/api/v2/wishlist/"+id,{method:"DELETE"});if(d.ok)loadWishlist()}
 
