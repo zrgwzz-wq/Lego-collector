@@ -10,7 +10,7 @@ from pathlib import Path
 import requests
 
 from .supabase_client import (
-    configured, rest_get, rest_post, rest_delete, rpc, service_headers
+    configured, rest_get, rest_post, rest_patch, rest_delete, rpc, service_headers
 )
 
 BRICKSET_API = "https://brickset.com/api/v3.asmx"
@@ -424,8 +424,6 @@ def sync_catalog(max_calls=24):
     saved = 0
     overlays = _verified_overlays()
     try:
-        # 표시용 한글명은 검증된 이름만 유지. 자동 번역명은 제거합니다.
-        enforce_verified_korean_policy()
         initial_complete = bool(state_get("initial_complete", False))
         if not initial_complete:
             years = state_get("years", None)
@@ -495,70 +493,100 @@ def sync_catalog(max_calls=24):
     finally:
         SYNC_LOCK.release()
 
-def remove_auto_translated_display_names(max_batches=20):
-    """Remove only names explicitly marked as automatic translations.
-    Verified/official Korean names are never touched.
-    """
+def remove_auto_translated_display_names(max_rows=5000):
+    """Remove display names only when their stored source explicitly says they were machine translated."""
     if not table_ready():
         return {"ok": False, "error": "master_table_missing", "cleared": 0}
 
-    cleared = 0
-    ok = True
-    for _ in range(max_batches):
-        try:
-            r = rest_get(
-                MASTER_TABLE,
-                {
-                    "select": "set_number,name_ko_source",
-                    "name_ko_source": "eq.자동 번역",
-                    "limit": "500",
-                },
-                timeout=12,
-            )
-            rows = r.json() if r.ok else []
-        except Exception:
-            rows = []
-        if not rows:
-            break
-
-        patches = [{
-            "set_number": str(x.get("set_number")),
-            "name_ko": None,
-            "name_ko_source": None,
-            "name_ko_updated_at": None,
-            "updated_at": _now_iso(),
-        } for x in rows if x.get("set_number")]
-        if patches:
-            ok = upsert_master(patches) and ok
-            cleared += len(patches)
-
     try:
-        rest_delete(ALIAS_TABLE, {"source": "eq.자동 번역"}, timeout=12)
+        r = rest_get(
+            MASTER_TABLE,
+            {"select": "set_number,name_ko_source", "name_ko_source": "not.is.null", "limit": str(max_rows)},
+            timeout=15,
+        )
+        rows = r.json() if r.ok else []
     except Exception:
-        pass
+        rows = []
 
-    return {"ok": ok, "cleared": cleared}
+    targets = [str(x.get("set_number")) for x in rows
+               if x.get("set_number") and _is_auto_translation_source(x.get("name_ko_source"))]
+    if not targets:
+        return {"ok": True, "cleared": 0}
+
+    ok = True
+    cleared = 0
+    for n in targets:
+        try:
+            r = rest_patch(
+                MASTER_TABLE,
+                {"name_ko": None, "name_ko_source": None, "name_ko_updated_at": None, "updated_at": _now_iso()},
+                {"set_number": f"eq.{n}"}, timeout=10, prefer="return=minimal",
+            )
+            if r.ok:
+                cleared += 1
+            else:
+                ok = False
+        except Exception:
+            ok = False
+
+    for marker in ("자동 번역", "Google Translate", "machine translation", "auto translate"):
+        try:
+            rest_delete(ALIAS_TABLE, {"source": f"eq.{marker}"}, timeout=10)
+        except Exception:
+            pass
+
+    return {"ok": ok, "cleared": cleared, "targets": len(targets)}
+
 
 def apply_verified_korean():
+    """Patch verified Korean metadata only onto master records that already exist."""
     overlays = _verified_overlays()
-    rows = []
     now = _now_iso()
-    for n, ov in overlays.items():
-        if not ov.get("name_ko") and ov.get("price_krw") is None:
-            continue
-        row = {"set_number": n, "updated_at": now}
-        if ov.get("name_ko"):
-            row.update({
-                "name_ko": ov.get("name_ko"),
-                "name_ko_source": ov.get("source") or "검증 한국명",
-                "name_ko_updated_at": now,
-            })
-        if ov.get("price_krw") is not None:
-            row["price_krw"] = ov.get("price_krw")
-        rows.append(row)
-    ok = upsert_master(rows) if rows else True
-    upsert_aliases(rows)
-    return {"ok": ok, "updated": len(rows)}
+    candidates = [(str(n), ov) for n, ov in overlays.items()
+                  if ov.get("name_ko") or ov.get("price_krw") is not None]
+
+    applied = []
+    failed = []
+    skipped_missing_master = []
+
+    for n, ov in candidates:
+        try:
+            exists = rest_get(MASTER_TABLE, {"select": "set_number", "set_number": f"eq.{n}", "limit": "1"}, timeout=8)
+            if not exists.ok or not (exists.json() or []):
+                skipped_missing_master.append(n)
+                continue
+
+            patch = {"updated_at": now}
+            if ov.get("name_ko"):
+                patch.update({
+                    "name_ko": ov.get("name_ko"),
+                    "name_ko_source": ov.get("source") or "검증 한국명",
+                    "name_ko_updated_at": now,
+                })
+            if ov.get("price_krw") is not None:
+                patch["price_krw"] = ov.get("price_krw")
+
+            r = rest_patch(MASTER_TABLE, patch, {"set_number": f"eq.{n}"}, timeout=10, prefer="return=minimal")
+            if r.ok:
+                upsert_aliases([{
+                    "set_number": n,
+                    "name_ko": ov.get("name_ko"),
+                    "name_ko_source": ov.get("source") or "검증 한국명",
+                }])
+                applied.append(n)
+            else:
+                failed.append(n)
+        except Exception:
+            failed.append(n)
+
+    return {
+        "ok": len(failed) == 0,
+        "applied": len(applied),
+        "failed": len(failed),
+        "failed_sets": failed[:20],
+        "skipped_missing_master": len(skipped_missing_master),
+    }
+
 
 def enforce_verified_korean_policy():
     cleanup = remove_auto_translated_display_names()
@@ -566,7 +594,10 @@ def enforce_verified_korean_policy():
     return {
         "ok": bool(cleanup.get("ok")) and bool(verified.get("ok")),
         "auto_names_cleared": cleanup.get("cleared", 0),
-        "verified_names_applied": verified.get("updated", 0),
+        "verified_names_applied": verified.get("applied", 0),
+        "verified_names_failed": verified.get("failed", 0),
+        "verified_names_waiting_for_master": verified.get("skipped_missing_master", 0),
+        "failed_sets": verified.get("failed_sets", []),
         "policy": "verified_korean_else_english",
     }
 
