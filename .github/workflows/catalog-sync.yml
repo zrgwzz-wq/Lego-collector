@@ -25,11 +25,12 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          pip install beautifulsoup4
+          pip install beautifulsoup4 playwright
+          python -m playwright install --with-deps chromium
 
       - name: Sync LEGO catalog and official Korean data
         env:
           BRICKSET_API_KEY: ${{ secrets.BRICKSET_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-        run: python catalog_sync.py --max-calls 60 --shop-pages 55 --instruction-names 120
+        run: python catalog_sync.py --max-calls 60 --shop-pages 55 --instruction-names 80
