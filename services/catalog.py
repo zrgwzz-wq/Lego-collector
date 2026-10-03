@@ -425,58 +425,129 @@ def sync_catalog(max_calls=24):
     overlays = _verified_overlays()
     try:
         initial_complete = bool(state_get("initial_complete", False))
+
         if not initial_complete:
+            # Fast initial mode:
+            # Brickset accepts a comma-delimited list for the year parameter.
+            # Instead of spending one getSets call per year, pack all remaining
+            # years into one paginated query (up to 500 sets per call).
             years = state_get("years", None)
             if not isinstance(years, list) or not years:
                 years = _years()
                 state_set("years", years)
-            yi = int(state_get("year_index", 0) or 0)
-            page = int(state_get("page", 1) or 1)
 
-            while calls < max_calls and yi < len(years):
-                year = years[yi]
+            # Preserve progress already made by the older year-by-year importer.
+            yi = int(state_get("year_index", 0) or 0)
+            yi = max(0, min(yi, len(years)))
+            remaining_years = years[yi:]
+
+            if not remaining_years:
+                state_set("initial_complete", True)
+                state_set("last_sync_date", _today())
+                return {
+                    "ok": True, "mode": "initial_bulk", "calls": 0,
+                    "rows_saved": 0, "initial_complete": True
+                }
+
+            page = int(state_get("bulk_page", 1) or 1)
+            page = max(1, page)
+            year_filter = ",".join(str(y) for y in remaining_years)
+            total_matches = 0
+            pages = 1
+
+            while calls < max_calls:
                 d = _brickset_call("getSets", {
                     "params": json.dumps({
-                        "year": year, "pageSize": 500, "pageNumber": page,
-                        "extendedData": 1, "orderBy": "Number"
+                        "year": year_filter,
+                        "pageSize": 500,
+                        "pageNumber": page,
+                        "extendedData": 1,
+                        "orderBy": "Number"
                     })
                 })
                 calls += 1
+
                 sets = d.get("sets", []) or []
-                rows = [_row_from_brickset(x, overlays) for x in sets if x.get("number") and _real_named_item(x)]
+                rows = [
+                    _row_from_brickset(x, overlays)
+                    for x in sets
+                    if x.get("number") and _real_named_item(x)
+                ]
                 if rows:
                     upsert_master(rows)
                     upsert_aliases(rows)
                     saved += len(rows)
-                matches = int(d.get("matches") or len(sets))
-                pages = max(1, math.ceil(matches / 500))
-                if page >= pages:
-                    yi += 1
-                    page = 1
-                else:
-                    page += 1
-                state_set("year_index", yi)
-                state_set("page", page)
-                state_set("last_progress", {"year": year, "page": page, "calls": calls, "rows_saved": saved})
 
-            done = yi >= len(years)
+                total_matches = int(d.get("matches") or len(sets))
+                pages = max(1, math.ceil(total_matches / 500))
+
+                if page >= pages:
+                    page += 1
+                    break
+
+                page += 1
+                state_set("bulk_page", page)
+                state_set("last_progress", {
+                    "mode": "initial_bulk",
+                    "page": page,
+                    "pages": pages,
+                    "calls": calls,
+                    "rows_saved": saved,
+                    "remaining_years": len(remaining_years),
+                    "total_matches": total_matches,
+                })
+
+            done = page > pages
             if done:
                 state_set("initial_complete", True)
                 state_set("last_sync_date", _today())
-            return {"ok": True, "mode": "initial", "calls": calls, "rows_saved": saved, "initial_complete": done}
+                state_set("bulk_page", 1)
+            else:
+                state_set("bulk_page", page)
 
+            state_set("last_progress", {
+                "mode": "initial_bulk",
+                "page": min(page, pages),
+                "pages": pages,
+                "calls": calls,
+                "rows_saved": saved,
+                "remaining_years": len(remaining_years),
+                "total_matches": total_matches,
+                "initial_complete": done,
+            })
+
+            return {
+                "ok": True,
+                "mode": "initial_bulk",
+                "calls": calls,
+                "rows_saved": saved,
+                "initial_complete": done,
+                "page": min(page, pages),
+                "pages": pages,
+                "total_matches": total_matches,
+                "remaining_years": len(remaining_years),
+            }
+
+        # After the initial catalog is complete, only fetch changes.
         last = str(state_get("last_sync_date", _today()) or _today())
         page = 1
         while calls < max_calls:
             d = _brickset_call("getSets", {
                 "params": json.dumps({
-                    "updatedSince": last, "pageSize": 500, "pageNumber": page,
-                    "extendedData": 1, "orderBy": "Number"
+                    "updatedSince": last,
+                    "pageSize": 500,
+                    "pageNumber": page,
+                    "extendedData": 1,
+                    "orderBy": "Number"
                 })
             })
             calls += 1
             sets = d.get("sets", []) or []
-            rows = [_row_from_brickset(x, overlays) for x in sets if x.get("number") and _real_named_item(x)]
+            rows = [
+                _row_from_brickset(x, overlays)
+                for x in sets
+                if x.get("number") and _real_named_item(x)
+            ]
             if rows:
                 upsert_master(rows)
                 upsert_aliases(rows)
@@ -486,10 +557,17 @@ def sync_catalog(max_calls=24):
             if page >= pages:
                 break
             page += 1
+
         state_set("last_sync_date", _today())
-        return {"ok": True, "mode": "incremental", "calls": calls, "rows_saved": saved, "initial_complete": True}
+        return {
+            "ok": True, "mode": "incremental", "calls": calls,
+            "rows_saved": saved, "initial_complete": True
+        }
     except Exception as e:
-        return {"ok": False, "error": str(e)[:300], "calls": calls, "rows_saved": saved}
+        return {
+            "ok": False, "error": str(e)[:300],
+            "calls": calls, "rows_saved": saved
+        }
     finally:
         SYNC_LOCK.release()
 
