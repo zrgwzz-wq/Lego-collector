@@ -11,7 +11,7 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 35
 
     steps:
       - name: Checkout
@@ -28,9 +28,15 @@ jobs:
           pip install beautifulsoup4 playwright
           python -m playwright install --with-deps chromium
 
-      - name: Sync LEGO catalog and official Korean data
+      - name: Sync catalog, Korean data, search aliases and KREAM trades
         env:
           BRICKSET_API_KEY: ${{ secrets.BRICKSET_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-        run: python catalog_sync.py --max-calls 60 --shop-pages 55 --instruction-names 80
+        run: >-
+          python catalog_sync.py
+          --max-calls 60
+          --shop-pages 55
+          --instruction-names 80
+          --alias-batches 4
+          --kream-limit 8
