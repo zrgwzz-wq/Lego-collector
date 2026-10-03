@@ -2,14 +2,13 @@ import argparse
 import json
 import re
 import time
-from datetime import datetime, timezone
 from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
 
 from services.catalog import (
-    MASTER_TABLE, ALIAS_TABLE, state_get, state_set,
+    MASTER_TABLE, state_get, state_set,
     table_ready, upsert_aliases, _now_iso, _today
 )
 from services.supabase_client import configured, rest_get, rest_post
@@ -26,16 +25,32 @@ HEADERS = {
 
 PRICE_RE = re.compile(r'([0-9]{1,3}(?:,[0-9]{3})+)\s*원')
 SET_RE = re.compile(r'-(\d{4,8})(?:[/?#]|$)')
+BAD_NAMES = {
+    "출시 예정", "장바구니 담기", "백오더", "품절", "신제품",
+    "쇼핑하기", "자세히 보기", "제품 보기", "세트 보기"
+}
+
 
 def _session():
     s = requests.Session()
     s.headers.update(HEADERS)
     return s
 
+
 def _clean_name(s):
     s = re.sub(r'\s+', ' ', str(s or '')).strip()
     s = re.sub(r'\s*[0-9]{1,3}(?:,[0-9]{3})+\s*원.*$', '', s).strip()
     return s
+
+
+def _good_name(name):
+    name = _clean_name(name)
+    if not name or name in BAD_NAMES or len(name) > 180:
+        return None
+    if PRICE_RE.fullmatch(name):
+        return None
+    return name
+
 
 def _product_from_anchor(a):
     href = a.get("href") or ""
@@ -46,15 +61,13 @@ def _product_from_anchor(a):
         return None
     set_number = m.group(1)
 
-    name = _clean_name(" ".join(a.stripped_strings))
-    bad = {"출시 예정", "장바구니 담기", "백오더", "품절", "신제품"}
-    if not name or name in bad or len(name) > 180:
+    name = _good_name(" ".join(a.stripped_strings))
+    if not name:
         for tag in ("h1", "h2", "h3", "h4"):
             h = a.find(tag)
             if h:
-                candidate = _clean_name(" ".join(h.stripped_strings))
-                if candidate and candidate not in bad:
-                    name = candidate
+                name = _good_name(" ".join(h.stripped_strings))
+                if name:
                     break
 
     node = a
@@ -74,7 +87,7 @@ def _product_from_anchor(a):
                 price = None
             break
 
-    if not name or name in bad:
+    if not name:
         return None
 
     return {
@@ -84,75 +97,32 @@ def _product_from_anchor(a):
         "source_url": urljoin(LEGO_KR, href),
     }
 
-def sync_current_shop(max_pages=55, force=False):
-    if not configured() or not table_ready():
-        return {"ok": False, "error": "supabase_not_ready"}
 
-    if not force and state_get("lego_kr_shop_last_sync", None) == _today():
-        return {"ok": True, "skipped": True, "reason": "already_synced_today"}
-
-    s = _session()
-    seen = {}
-    pages_done = 0
-    empty_pages = 0
-
-    for page in range(1, max_pages + 1):
-        url = SHOP_URL if page == 1 else f"{SHOP_URL}?page={page}"
-        try:
-            r = s.get(url, timeout=30)
-            r.raise_for_status()
-        except Exception as e:
-            return {
-                "ok": False, "error": f"lego_shop_fetch_failed:{type(e).__name__}",
-                "page": page, "products_found": len(seen)
-            }
-
-        soup = BeautifulSoup(r.text, "html.parser")
-        before = len(seen)
-
-        for a in soup.find_all("a", href=True):
-            item = _product_from_anchor(a)
-            if not item:
-                continue
-            n = item["set_number"]
-            prev = seen.get(n)
-            # Prefer a row that has a KRW price.
-            if prev is None or (prev.get("price_krw") is None and item.get("price_krw") is not None):
-                seen[n] = item
-
-        pages_done += 1
-        if len(seen) == before:
-            empty_pages += 1
-        else:
-            empty_pages = 0
-
-        # LEGO PLP currently shows ~20-24 products per page.
-        # Two consecutive pages with no new product links means we've reached the end.
-        if empty_pages >= 2:
-            break
-
-        time.sleep(0.20)
-
+def _persist_korean_rows(items, source):
     now = _now_iso()
     today = _today()
     master_rows = []
     kr_rows = []
 
-    for item in seen.values():
+    for item in items:
+        n = str(item.get("set_number") or "")
+        name = _good_name(item.get("name_ko"))
+        if not n or not name:
+            continue
         master_rows.append({
-            "set_number": item["set_number"],
-            "name_ko": item["name_ko"],
-            "name_ko_source": "LEGO Korea 공식몰",
+            "set_number": n,
+            "name_ko": name,
+            "name_ko_source": source,
             "name_ko_updated_at": now,
             "price_krw": item.get("price_krw"),
             "updated_at": now,
         })
         kr_rows.append({
-            "set_number": item["set_number"],
-            "name_ko": item["name_ko"],
+            "set_number": n,
+            "name_ko": name,
             "price_krw": item.get("price_krw"),
-            "source": "LEGO Korea 공식몰",
-            "source_url": item["source_url"],
+            "source": source,
+            "source_url": item.get("source_url"),
             "checked_at": today,
             "updated_at": now,
         })
@@ -179,19 +149,195 @@ def sync_current_shop(max_pages=55, force=False):
     if master_rows:
         upsert_aliases(master_rows)
 
-    if ok:
-        state_set("lego_kr_shop_last_sync", today)
+    return ok, len(master_rows), sum(1 for x in master_rows if x.get("price_krw") is not None)
 
-    priced = sum(1 for x in seen.values() if x.get("price_krw") is not None)
+
+def _sync_shop_requests(max_pages):
+    s = _session()
+    seen = {}
+    pages_done = 0
+    empty_pages = 0
+
+    for page_no in range(1, max_pages + 1):
+        url = SHOP_URL if page_no == 1 else f"{SHOP_URL}?page={page_no}"
+        try:
+            r = s.get(url, timeout=30)
+            if r.status_code >= 400:
+                return None, {
+                    "error": "http_error",
+                    "status": r.status_code,
+                    "page": page_no,
+                }
+        except Exception as e:
+            return None, {
+                "error": type(e).__name__,
+                "page": page_no,
+            }
+
+        soup = BeautifulSoup(r.text, "html.parser")
+        before = len(seen)
+        for a in soup.find_all("a", href=True):
+            item = _product_from_anchor(a)
+            if not item:
+                continue
+            n = item["set_number"]
+            prev = seen.get(n)
+            if prev is None or (prev.get("price_krw") is None and item.get("price_krw") is not None):
+                seen[n] = item
+
+        pages_done += 1
+        empty_pages = empty_pages + 1 if len(seen) == before else 0
+        if empty_pages >= 2:
+            break
+        time.sleep(0.20)
+
+    return list(seen.values()), {"pages": pages_done, "method": "requests"}
+
+
+def _sync_shop_browser(max_pages):
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception as e:
+        return None, {"error": f"playwright_import:{type(e).__name__}"}
+
+    seen = {}
+    pages_done = 0
+    empty_pages = 0
+    last_status = None
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
+        context = browser.new_context(
+            locale="ko-KR",
+            user_agent=HEADERS["User-Agent"],
+            viewport={"width": 1280, "height": 900},
+        )
+        page = context.new_page()
+
+        for page_no in range(1, max_pages + 1):
+            url = SHOP_URL if page_no == 1 else f"{SHOP_URL}?page={page_no}"
+            try:
+                response = page.goto(url, wait_until="domcontentloaded", timeout=45000)
+                last_status = response.status if response else None
+                if last_status and last_status >= 400:
+                    browser.close()
+                    return None, {
+                        "error": "browser_http_error",
+                        "status": last_status,
+                        "page": page_no,
+                    }
+                page.wait_for_timeout(1200)
+            except Exception as e:
+                browser.close()
+                return None, {
+                    "error": f"browser_navigation:{type(e).__name__}",
+                    "page": page_no,
+                    "status": last_status,
+                }
+
+            raw = page.evaluate(r'''() => {
+              const out = [];
+              const anchors = [...document.querySelectorAll('a[href*="/product/"]')];
+              for (const a of anchors) {
+                const href = a.href || a.getAttribute('href') || '';
+                const m = href.match(/-(\d{4,8})(?:[/?#]|$)/);
+                if (!m) continue;
+                let card = a.closest('li,article,[data-test*="product" i],[class*="product" i]');
+                let node = a;
+                for (let i=0; !card && node && i<7; i++, node=node.parentElement) {
+                  const h = node.querySelector?.('h1,h2,h3,h4');
+                  if (h) { card = node; break; }
+                }
+                const heading = card?.querySelector?.('h1,h2,h3,h4')?.innerText || '';
+                const aria = a.getAttribute('aria-label') || '';
+                const imgAlt = a.querySelector('img')?.getAttribute('alt') || '';
+                const anchorText = a.innerText || '';
+                const cardText = card?.innerText || '';
+                out.push({href, set_number:m[1], heading, aria, imgAlt, anchorText, cardText});
+              }
+              return out;
+            }''')
+
+            before = len(seen)
+            for row in raw or []:
+                candidates = [row.get("heading"), row.get("aria"), row.get("anchorText"), row.get("imgAlt")]
+                name = None
+                for candidate in candidates:
+                    candidate = _good_name(candidate)
+                    if candidate:
+                        name = candidate
+                        break
+                if not name:
+                    continue
+                price = None
+                pm = PRICE_RE.search(str(row.get("cardText") or ""))
+                if pm:
+                    try:
+                        price = int(pm.group(1).replace(",", ""))
+                    except Exception:
+                        pass
+                item = {
+                    "set_number": row["set_number"],
+                    "name_ko": name,
+                    "price_krw": price,
+                    "source_url": row.get("href"),
+                }
+                prev = seen.get(item["set_number"])
+                if prev is None or (prev.get("price_krw") is None and price is not None):
+                    seen[item["set_number"]] = item
+
+            pages_done += 1
+            empty_pages = empty_pages + 1 if len(seen) == before else 0
+            if empty_pages >= 2:
+                break
+
+        browser.close()
+
+    return list(seen.values()), {
+        "pages": pages_done,
+        "method": "playwright",
+        "status": last_status,
+    }
+
+
+def sync_current_shop(max_pages=55, force=False):
+    if not configured() or not table_ready():
+        return {"ok": False, "error": "supabase_not_ready"}
+
+    if not force and state_get("lego_kr_shop_last_sync", None) == _today():
+        return {"ok": True, "skipped": True, "reason": "already_synced_today"}
+
+    items, meta = _sync_shop_requests(max_pages)
+    fallback = None
+    if items is None or len(items) < 50:
+        fallback = meta
+        items, meta = _sync_shop_browser(max_pages)
+
+    if items is None:
+        return {
+            "ok": False,
+            "error": meta.get("error") if meta else "shop_fetch_failed",
+            "detail": meta,
+            "requests_attempt": fallback,
+            "products_found": 0,
+        }
+
+    ok, saved, priced = _persist_korean_rows(items, "LEGO Korea 공식몰")
+    if ok and saved:
+        state_set("lego_kr_shop_last_sync", _today())
+
     return {
         "ok": ok,
-        "pages": pages_done,
-        "products_found": len(seen),
+        "pages": meta.get("pages"),
+        "method": meta.get("method"),
+        "products_found": saved,
         "prices_found": priced,
+        "requests_attempt": fallback,
         "source": "LEGO Korea 공식몰",
     }
 
-def _instruction_name(s, set_number):
+
+def _instruction_name_requests(s, set_number):
     url = f"https://www.lego.com/ko-kr/service/building-instructions/{set_number}"
     try:
         r = s.get(url, timeout=20)
@@ -199,23 +345,65 @@ def _instruction_name(s, set_number):
             return None
     except Exception:
         return None
-
     soup = BeautifulSoup(r.text, "html.parser")
     for h in soup.find_all("h1"):
-        name = _clean_name(" ".join(h.stripped_strings))
+        name = _good_name(" ".join(h.stripped_strings))
         if not name:
             continue
         low = name.lower()
         if "조립 설명서" in name or "building instruction" in low:
             continue
-        if len(name) > 180:
-            continue
         return {"name_ko": name, "source_url": url}
     return None
 
-def sync_instruction_names(limit=120):
+
+def _instruction_names_browser(set_numbers):
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception:
+        return {}, "playwright_import_failed"
+
+    found = {}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
+        context = browser.new_context(
+            locale="ko-KR",
+            user_agent=HEADERS["User-Agent"],
+            viewport={"width": 1280, "height": 900},
+        )
+        page = context.new_page()
+
+        for n in set_numbers:
+            url = f"https://www.lego.com/ko-kr/service/building-instructions/{n}"
+            try:
+                response = page.goto(url, wait_until="domcontentloaded", timeout=25000)
+                if response and response.status >= 400:
+                    continue
+                page.wait_for_timeout(450)
+                heads = page.locator("h1").all_inner_texts()
+                name = None
+                for h in heads:
+                    h = _good_name(h)
+                    if not h:
+                        continue
+                    low = h.lower()
+                    if "조립 설명서" in h or "building instruction" in low:
+                        continue
+                    name = h
+                    break
+                if name:
+                    found[n] = {"name_ko": name, "source_url": page.url}
+            except Exception:
+                continue
+
+        browser.close()
+    return found, "playwright"
+
+
+def sync_instruction_names(limit=80):
     """Gradually add official Korean names for retired/older sets.
-    No machine translation is used.
+    No machine translation is used. Requests is tried first; Playwright fills
+    names that are rendered client-side.
     """
     if not configured() or not table_ready():
         return {"ok": False, "error": "supabase_not_ready"}
@@ -241,70 +429,50 @@ def sync_instruction_names(limit=120):
     if not rows:
         return {"ok": True, "checked": 0, "found": 0}
 
+    set_numbers = [str(x.get("set_number") or "") for x in rows if x.get("set_number")]
+    last = set_numbers[-1] if set_numbers else cursor
     s = _session()
-    found = []
-    last = cursor
+    found_map = {}
 
-    for row in rows:
-        n = str(row.get("set_number") or "")
-        if not n:
-            continue
-        last = n
-        item = _instruction_name(s, n)
+    # Cheap first pass.
+    for n in set_numbers:
+        item = _instruction_name_requests(s, n)
         if item:
-            found.append({
-                "set_number": n,
-                "name_ko": item["name_ko"],
-                "name_ko_source": "LEGO Korea 조립 설명서",
-                "name_ko_updated_at": _now_iso(),
-                "updated_at": _now_iso(),
-                "_source_url": item["source_url"],
-            })
-        time.sleep(0.15)
+            found_map[n] = item
 
-    master_payload = [{k:v for k,v in x.items() if not k.startswith("_")} for x in found]
-    for i in range(0, len(master_payload), 100):
-        rest_post(
-            MASTER_TABLE, master_payload[i:i+100],
-            {"on_conflict": "set_number"},
-            timeout=25,
-            prefer="resolution=merge-duplicates,return=minimal"
-        )
+    missing = [n for n in set_numbers if n not in found_map]
+    browser_found = {}
+    browser_method = None
+    if missing:
+        browser_found, browser_method = _instruction_names_browser(missing)
+        found_map.update(browser_found)
 
-    kr_payload = [{
-        "set_number": x["set_number"],
-        "name_ko": x["name_ko"],
-        "source": "LEGO Korea 조립 설명서",
-        "source_url": x["_source_url"],
-        "checked_at": _today(),
-        "updated_at": _now_iso(),
-    } for x in found]
+    items = [{
+        "set_number": n,
+        "name_ko": item["name_ko"],
+        "price_krw": None,
+        "source_url": item["source_url"],
+    } for n, item in found_map.items()]
 
-    for i in range(0, len(kr_payload), 100):
-        rest_post(
-            KR_CATALOG_TABLE, kr_payload[i:i+100],
-            {"on_conflict": "set_number"},
-            timeout=25,
-            prefer="resolution=merge-duplicates,return=minimal"
-        )
-
-    if master_payload:
-        upsert_aliases(master_payload)
-
+    ok, saved, _ = _persist_korean_rows(items, "LEGO Korea 조립 설명서")
     state_set("lego_kr_name_cursor", last)
 
     return {
-        "ok": True,
-        "checked": len(rows),
-        "found": len(found),
+        "ok": ok,
+        "checked": len(set_numbers),
+        "found": saved,
+        "requests_found": saved - len(browser_found),
+        "browser_found": len(browser_found),
+        "browser_method": browser_method,
         "cursor": last,
         "source": "LEGO Korea 조립 설명서",
     }
 
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--shop-pages", type=int, default=55)
-    p.add_argument("--instruction-names", type=int, default=120)
+    p.add_argument("--instruction-names", type=int, default=80)
     p.add_argument("--force-shop", action="store_true")
     args = p.parse_args()
 
@@ -316,6 +484,7 @@ def main():
         {"lego_kr_instruction_names": sync_instruction_names(args.instruction_names)},
         ensure_ascii=False
     ))
+
 
 if __name__ == "__main__":
     main()
