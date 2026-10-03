@@ -236,191 +236,71 @@ def _sync_shop_browser(max_pages):
                 }
 
             raw = page.evaluate(r'''() => {
-
-  const out = [];
-
-  const anchors = [
-    ...document.querySelectorAll(
-      'a[href*="/product/"]'
-    )
-  ];
-
-  const priceRe =
-    /([0-9]{1,3}(?:,[0-9]{3})+)\s*원/;
-
-
-  for (const a of anchors) {
-
-    const href =
-      a.href ||
-      a.getAttribute('href') ||
-      '';
-
-    const m =
-      href.match(
-        /-(\d{4,8})(?:[/?#]|$)/
-      );
-
-    if (!m) continue;
-
-
-    let priceText = '';
-    let contextText = '';
-    let heading = '';
-
-    let node = a;
-
-
-    /*
-      LEGO 페이지 구조가 자주 바뀌므로
-      특정 class 이름을 믿지 않고
-      제품 링크에서 부모 방향으로 올라가면서
-      실제 '원' 가격이 있는 가장 가까운 영역을 찾는다.
-    */
-
-    for (
-      let i = 0;
-      node && i < 12;
-      i++,
-      node = node.parentElement
-    ) {
-
-      const txt =
-        (node.innerText || '').trim();
-
-
-      if (!heading) {
-
-        heading =
-          node.querySelector?.(
-            'h1,h2,h3,h4'
-          )?.innerText || '';
-
-      }
-
-
-      if (
-        !contextText &&
-        txt.length > 0 &&
-        txt.length < 2500
-      ) {
-
-        contextText = txt;
-
-      }
-
-
-      if (
-        txt.length > 0 &&
-        txt.length < 12000 &&
-        priceRe.test(txt)
-      ) {
-
-        priceText = txt;
-        contextText = txt;
-
-        break;
-
-      }
-
-    }
-
-
-    /*
-      가격이 제품 링크의 부모 안이 아니라
-      옆 영역에 있는 경우도 확인
-    */
-
-    if (!priceText) {
-
-      let parent =
-        a.parentElement;
-
-
-      for (
-        let depth = 0;
-        parent &&
-        depth < 6 &&
-        !priceText;
-        depth++,
-        parent = parent.parentElement
-      ) {
-
-        const siblings =
-          [
-            ...(parent.children || [])
-          ];
-
-
-        for (const sib of siblings) {
-
-          const txt =
-            (sib.innerText || '').trim();
-
-
-          if (
-            txt.length > 0 &&
-            txt.length < 8000 &&
-            priceRe.test(txt)
-          ) {
-
-            priceText = txt;
-            contextText = txt;
-
-            break;
-
-          }
-
-        }
-
-      }
-
-    }
-
-
-    const aria =
-      a.getAttribute(
-        'aria-label'
-      ) || '';
-
-    const imgAlt =
-      a.querySelector(
-        'img'
-      )?.getAttribute(
-        'alt'
-      ) || '';
-
-    const anchorText =
-      a.innerText || '';
-
-
-    out.push({
-
-      href,
-
-      set_number:
-        m[1],
-
-      heading,
-
-      aria,
-
-      imgAlt,
-
-      anchorText,
-
-      cardText:
-        priceText ||
-        contextText
-
-    });
-
-  }
-
-
-  return out;
-
-}''')
+              const out = [];
+              const anchors = [...document.querySelectorAll('a[href*="/product/"]')];
+              const priceRe = /([0-9]{1,3}(?:,[0-9]{3})+)\s*원/;
+
+              for (const a of anchors) {
+                const href = a.href || a.getAttribute('href') || '';
+                const m = href.match(/-(\d{4,8})(?:[/?#]|$)/);
+                if (!m) continue;
+
+                // LEGO's card markup changes often. Do not trust one "product"
+                // class: walk upward and use the smallest ancestor that actually
+                // contains a KRW price.
+                let priceText = '';
+                let contextText = '';
+                let heading = '';
+                let node = a;
+
+                for (let i = 0; node && i < 12; i++, node = node.parentElement) {
+                  const txt = (node.innerText || '').trim();
+                  if (!heading) {
+                    heading = node.querySelector?.('h1,h2,h3,h4')?.innerText || '';
+                  }
+                  if (!contextText && txt.length > 0 && txt.length < 2500) {
+                    contextText = txt;
+                  }
+                  if (txt.length > 0 && txt.length < 12000 && priceRe.test(txt)) {
+                    priceText = txt;
+                    contextText = txt;
+                    break;
+                  }
+                }
+
+                // Also look at a few nearby siblings if price is rendered next to
+                // rather than inside the link container.
+                if (!priceText) {
+                  let parent = a.parentElement;
+                  for (let depth = 0; parent && depth < 6 && !priceText; depth++, parent = parent.parentElement) {
+                    const siblings = [...(parent.children || [])];
+                    for (const sib of siblings) {
+                      const txt = (sib.innerText || '').trim();
+                      if (txt.length > 0 && txt.length < 8000 && priceRe.test(txt)) {
+                        priceText = txt;
+                        contextText = txt;
+                        break;
+                      }
+                    }
+                  }
+                }
+
+                const aria = a.getAttribute('aria-label') || '';
+                const imgAlt = a.querySelector('img')?.getAttribute('alt') || '';
+                const anchorText = a.innerText || '';
+
+                out.push({
+                  href,
+                  set_number: m[1],
+                  heading,
+                  aria,
+                  imgAlt,
+                  anchorText,
+                  cardText: priceText || contextText
+                });
+              }
+              return out;
+            }''')
 
             before = len(seen)
             for row in raw or []:
@@ -469,29 +349,20 @@ def sync_current_shop(max_pages=55, force=False):
         return {"ok": False, "error": "supabase_not_ready"}
 
     last_day = state_get("lego_kr_shop_last_sync", None)
+    try:
+        last_price_count = int(state_get("lego_kr_shop_last_price_count", 0) or 0)
+    except Exception:
+        last_price_count = 0
 
-try:
-    last_price_count = int(
-        state_get(
-            "lego_kr_shop_last_price_count",
-            0
-        ) or 0
-    )
-except Exception:
-    last_price_count = 0
-
-# 같은 날이라도 가격을 0개 가져온 실행은 실패로 보고 다시 시도
-if (
-    not force
-    and last_day == _today()
-    and last_price_count > 0
-):
-    return {
-        "ok": True,
-        "skipped": True,
-        "reason": "already_synced_today",
-        "prices_found": last_price_count,
-    }
+    # A prior run that saved names but captured zero prices is considered incomplete
+    # and will be retried the same day.
+    if not force and last_day == _today() and last_price_count > 0:
+        return {
+            "ok": True,
+            "skipped": True,
+            "reason": "already_synced_today",
+            "prices_found": last_price_count,
+        }
 
     items, meta = _sync_shop_requests(max_pages)
     fallback = None
@@ -510,15 +381,8 @@ if (
 
     ok, saved, priced = _persist_korean_rows(items, "LEGO Korea 공식몰")
     if ok and saved:
-        state_set(
-            "lego_kr_shop_last_sync",
-            _today()
-        )
-
-        state_set(
-            "lego_kr_shop_last_price_count",
-            priced
-        )
+        state_set("lego_kr_shop_last_sync", _today())
+        state_set("lego_kr_shop_last_price_count", priced)
 
     return {
         "ok": ok,
