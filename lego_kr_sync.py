@@ -510,15 +510,15 @@ if (
 
     ok, saved, priced = _persist_korean_rows(items, "LEGO Korea 공식몰")
     if ok and saved:
-    state_set(
-        "lego_kr_shop_last_sync",
-        _today()
-    )
+        state_set(
+            "lego_kr_shop_last_sync",
+            _today()
+        )
 
-    state_set(
-        "lego_kr_shop_last_price_count",
-        priced
-    )
+        state_set(
+            "lego_kr_shop_last_price_count",
+            priced
+        )
 
     return {
         "ok": ok,
