@@ -472,7 +472,20 @@ def backfill_search_aliases(batch_size=1000, max_batches=4):
                 }
             break
 
-        ok = upsert_aliases(rows) and ok
+        batch_ok = upsert_aliases(rows)
+        ok = batch_ok and ok
+        if not batch_ok:
+            # Do not advance the cursor on a failed alias write.
+            # The next scheduled run retries the exact same batch.
+            return {
+                "ok": False,
+                "complete": False,
+                "processed": processed,
+                "offset": offset,
+                "version": current_version,
+                "error": "alias_upsert_failed",
+            }
+
         processed += len(rows)
         offset += len(rows)
         state_set("alias_backfill_offset", offset)
