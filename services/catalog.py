@@ -22,6 +22,7 @@ STATE_TABLE = "lego_catalog_sync_state"
 FILTER_CACHE = {"t": 0, "data": None}
 LOCAL_KR = None
 SYNC_LOCK = threading.Lock()
+ALIAS_LAST_ERROR = None
 FULL_SCAN_VERSION = 2
 
 AUTO_TRANSLATION_MARKERS = ("자동 번역", "machine translation", "google translate", "auto translate")
@@ -360,8 +361,47 @@ def _normalize_alias(s):
     return re.sub(r"[^0-9a-z가-힣]+", "", str(s or "").lower())
 
 def upsert_aliases(rows):
-    payload = []
+    global ALIAS_LAST_ERROR
+    ALIAS_LAST_ERROR = None
     now = _now_iso()
+
+    # The table is unique on (alias_normalized, set_number). A single product can
+    # generate the same normalized alias from both its verified Korean name and a
+    # curated search term. Sending both rows in one PostgreSQL UPSERT causes:
+    # "ON CONFLICT DO UPDATE command cannot affect row a second time".
+    # Deduplicate before sending to PostgREST.
+    dedup = {}
+
+    def add_alias(alias, set_number, alias_type, source):
+        if not alias or not set_number:
+            return
+        norm = _normalize_alias(alias)
+        if not norm:
+            return
+
+        key = (norm, str(set_number))
+        row = {
+            "alias": str(alias),
+            "alias_normalized": norm,
+            "set_number": str(set_number),
+            "alias_type": alias_type,
+            "source": source,
+            "updated_at": now,
+        }
+
+        # Prefer the most authoritative representation when two aliases normalize
+        # to the same key. This affects metadata only; search behavior is the same.
+        rank = {
+            "korean_name": 40,
+            "curated_search_term": 30,
+            "english_name": 20,
+            "bricklink_name": 10,
+            "alternate_number": 5,
+        }
+        old = dedup.get(key)
+        if old is None or rank.get(alias_type, 0) > rank.get(old.get("alias_type"), 0):
+            dedup[key] = row
+
     for row in rows:
         n = str(row.get("set_number") or "")
         if not n:
@@ -370,52 +410,46 @@ def upsert_aliases(rows):
         name_ko = row.get("name_ko")
         name_ko_source = row.get("name_ko_source") or "catalog"
         if name_ko and not _is_auto_translation_source(name_ko_source):
-            norm = _normalize_alias(name_ko)
-            if norm:
-                payload.append({
-                    "alias": str(name_ko), "alias_normalized": norm,
-                    "set_number": n, "alias_type": "korean_name",
-                    "source": name_ko_source, "updated_at": now
-                })
+            add_alias(name_ko, n, "korean_name", name_ko_source)
 
-        for alias, kind, source in [
-            (row.get("name_en"), "english_name", "Brickset"),
-            (row.get("bricklink_name"), "bricklink_name", "BrickLink"),
-            (row.get("bricklink_alt_no"), "alternate_number", "BrickLink"),
-        ]:
-            if not alias:
-                continue
-            norm = _normalize_alias(alias)
-            if norm:
-                payload.append({
-                    "alias": str(alias), "alias_normalized": norm,
-                    "set_number": n, "alias_type": kind, "source": source,
-                    "updated_at": now
-                })
+        add_alias(row.get("name_en"), n, "english_name", "Brickset")
+        add_alias(row.get("bricklink_name"), n, "bricklink_name", "BrickLink")
+        add_alias(row.get("bricklink_alt_no"), n, "alternate_number", "BrickLink")
 
         for alias in _curated_search_aliases(row):
-            norm = _normalize_alias(alias)
-            if norm:
-                payload.append({
-                    "alias": alias, "alias_normalized": norm,
-                    "set_number": n, "alias_type": "curated_search_term",
-                    "source": "내부 검색 사전", "updated_at": now
-                })
+            add_alias(alias, n, "curated_search_term", "내부 검색 사전")
 
+    payload = list(dedup.values())
     if not payload:
         return True
-    ok = True
+
     for i in range(0, len(payload), 300):
         try:
             r = rest_post(
-                ALIAS_TABLE, payload[i:i+300],
+                ALIAS_TABLE,
+                payload[i:i+300],
                 {"on_conflict": "alias_normalized,set_number"},
-                timeout=20, prefer="resolution=merge-duplicates,return=minimal"
+                timeout=20,
+                prefer="resolution=merge-duplicates,return=minimal",
             )
-            ok = ok and r.ok
-        except Exception:
-            ok = False
-    return ok
+            if not r.ok:
+                ALIAS_LAST_ERROR = {
+                    "status": getattr(r, "status_code", None),
+                    "detail": (getattr(r, "text", "") or "")[:500],
+                    "chunk_start": i,
+                    "chunk_size": len(payload[i:i+300]),
+                }
+                return False
+        except Exception as e:
+            ALIAS_LAST_ERROR = {
+                "error": type(e).__name__,
+                "detail": str(e)[:500],
+                "chunk_start": i,
+                "chunk_size": len(payload[i:i+300]),
+            }
+            return False
+
+    return True
 
 
 ALIAS_BACKFILL_VERSION = 2
@@ -484,6 +518,7 @@ def backfill_search_aliases(batch_size=1000, max_batches=4):
                 "offset": offset,
                 "version": current_version,
                 "error": "alias_upsert_failed",
+                "detail": ALIAS_LAST_ERROR,
             }
 
         processed += len(rows)
