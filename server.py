@@ -6,7 +6,7 @@ from pathlib import Path
 import requests
 from flask import Flask, jsonify, request, send_from_directory
 
-from services import catalog
+from services import catalog, kream
 from services.supabase_client import (
     SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_KEY,
     configured as sb_configured, auth_configured,
@@ -55,7 +55,7 @@ def health():
     st = catalog.sync_status() if sb_configured() else {"count": 0, "table_ready": False}
     return jsonify(
         ok=True,
-        version="2.0",
+        version="2.2",
         supabase_configured=sb_configured(),
         auth_configured=auth_configured(),
         brickset_configured=bool(os.getenv("BRICKSET_API_KEY")),
@@ -95,6 +95,19 @@ def catalog_facets():
 @app.get("/api/v2/catalog-sync-status")
 def catalog_sync_status():
     return jsonify(catalog.sync_status())
+
+# ---------- Shared market data: no user identity is stored ----------
+@app.post("/api/v2/kream-watch")
+def kream_watch():
+    body = request.get_json(silent=True) or {}
+    raw = body.get("numbers") or []
+    if not isinstance(raw, list):
+        raw = [raw]
+    return jsonify(kream.watch_many(raw[:100]))
+
+@app.get("/api/v2/kream-history/<set_number>")
+def kream_history(set_number):
+    return jsonify(kream.history_payload(set_number, 5000))
 
 # ---------- Supabase Auth proxy ----------
 @app.post("/api/v2/auth/signup")

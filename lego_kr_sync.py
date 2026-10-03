@@ -17,6 +17,84 @@ LEGO_KR = "https://www.lego.com"
 SHOP_URL = "https://www.lego.com/ko-kr/categories/all-sets"
 KR_CATALOG_TABLE = "lego_kr_catalog"
 
+PROVENANCE_TABLE = "lego_kr_provenance"
+
+# 검증된 국내 발매가 fallback.
+# 현재 LEGO Korea 공식몰에서 단종되어 가격이 사라진 제품만 이 목록에 둡니다.
+# 화면 표시용 한글명과는 분리하여 price_krw만 보강합니다.
+VERIFIED_RELEASE_PRICE_FALLBACKS = {
+    "76218": {
+        "price_krw": 329900,
+        "price_source": "KREAM 발매가 (검증)",
+        "price_type": "release_price",
+        "source_url": "https://kream.co.kr/products/72845",
+    },
+}
+
+
+def _apply_verified_release_price_fallbacks():
+    if not configured() or not table_ready():
+        return {"ok": False, "applied": 0, "skipped": 0}
+
+    applied = 0
+    skipped = 0
+    ok = True
+    now = _now_iso()
+
+    for set_number, info in VERIFIED_RELEASE_PRICE_FALLBACKS.items():
+        try:
+            existing = rest_get(
+                MASTER_TABLE,
+                {"select": "set_number,price_krw", "set_number": f"eq.{set_number}", "limit": "1"},
+                timeout=10,
+            )
+            rows = existing.json() if existing.ok else []
+            if not rows:
+                skipped += 1
+                continue
+
+            # LEGO Korea에서 이미 공식 가격을 확보했다면 fallback으로 덮어쓰지 않습니다.
+            if rows[0].get("price_krw") is not None:
+                skipped += 1
+                continue
+
+            rr = rest_post(
+                MASTER_TABLE,
+                {
+                    "set_number": set_number,
+                    "price_krw": info["price_krw"],
+                    "updated_at": now,
+                },
+                {"on_conflict": "set_number"},
+                timeout=15,
+                prefer="resolution=merge-duplicates,return=minimal",
+            )
+            ok = ok and rr.ok
+            if rr.ok:
+                applied += 1
+
+            # 가격 출처는 이름 출처와 분리해서 provenance 테이블에 기록합니다.
+            try:
+                rest_post(
+                    PROVENANCE_TABLE,
+                    {
+                        "set_number": set_number,
+                        "price_source": info["price_source"],
+                        "price_type": info["price_type"],
+                        "updated_at": now,
+                    },
+                    {"on_conflict": "set_number"},
+                    timeout=12,
+                    prefer="resolution=merge-duplicates,return=minimal",
+                )
+            except Exception:
+                pass
+
+        except Exception:
+            ok = False
+
+    return {"ok": ok, "applied": applied, "skipped": skipped}
+
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 "
                   "(KHTML, like Gecko) Chrome/123.0 Mobile Safari/537.36",
@@ -348,6 +426,8 @@ def sync_current_shop(max_pages=55, force=False):
     if not configured() or not table_ready():
         return {"ok": False, "error": "supabase_not_ready"}
 
+    verified_release_prices = _apply_verified_release_price_fallbacks()
+
     last_day = state_get("lego_kr_shop_last_sync", None)
     try:
         last_price_count = int(state_get("lego_kr_shop_last_price_count", 0) or 0)
@@ -362,6 +442,7 @@ def sync_current_shop(max_pages=55, force=False):
             "skipped": True,
             "reason": "already_synced_today",
             "prices_found": last_price_count,
+            "verified_release_prices": verified_release_prices,
         }
 
     items, meta = _sync_shop_requests(max_pages)
@@ -391,6 +472,7 @@ def sync_current_shop(max_pages=55, force=False):
         "products_found": saved,
         "prices_found": priced,
         "requests_attempt": fallback,
+        "verified_release_prices": verified_release_prices,
         "source": "LEGO Korea 공식몰",
     }
 

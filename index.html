@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#fff8ed">
 <meta name="color-scheme" content="light only">
 <link rel="manifest" href="/manifest.webmanifest">
-<title>LEGO Collector 2.0</title>
+<title>LEGO Collector</title>
 <style>
 :root{color-scheme:light;
   --bg:#fff8ed;--paper:#fffdf8;--ink:#34302d;--muted:#817a73;--line:#eadfd2;
@@ -55,6 +55,7 @@ input:focus,select:focus,textarea:focus{border-color:#b6a7e0;box-shadow:0 0 0 3p
 .notice{padding:11px;border-radius:14px;background:#fff2c9;color:#6a5930;font-size:12px;margin:10px 0}
 .local-controls{display:flex;gap:8px;flex-wrap:wrap}.filebtn{display:inline-flex;align-items:center;justify-content:center;cursor:pointer}.toggleline{display:flex;align-items:center;gap:9px;padding:10px 3px;font-size:13px;color:#5f5750}.toggleline input{width:20px;height:20px;accent-color:#8aaed2}.settings-card{padding:15px;margin-bottom:10px}.settings-card h3{margin:0 0 7px}.settings-card p{margin:4px 0;color:var(--muted);font-size:13px}
 .chart{margin-top:13px;border:1px solid var(--line);border-radius:16px;padding:10px;background:#fff}.chart svg{width:100%;height:150px;display:block}.chart-labels{display:flex;justify-content:space-between;color:var(--muted);font-size:10px}
+.kream-history-panel{margin-top:13px;border:1px solid var(--line);border-radius:18px;padding:12px;background:#fff}.kream-history-head{display:flex;justify-content:space-between;gap:8px;align-items:flex-start;flex-wrap:wrap}.kream-history-head b{font-size:14px}.kream-history-meta{font-size:11px;color:var(--muted);line-height:1.5}.kream-tabs{display:flex;gap:6px;margin:10px 0 6px;overflow:auto}.kream-tabs button{border:1px solid var(--line);background:#fffaf4;color:#6f665e;border-radius:999px;padding:6px 10px;font-size:11px;white-space:nowrap}.kream-tabs button.on{background:var(--lav);color:#352d48;font-weight:900;border-color:transparent}.kream-market-chart{width:100%;height:160px;display:block}.kream-market-chart .grid{stroke:#eee4d9;stroke-width:1}.kream-market-chart .line{fill:none;stroke:#8e7bd1;stroke-width:4;stroke-linecap:round;stroke-linejoin:round}.kream-market-chart .dot{fill:#8e7bd1}.kream-market-chart text{font-size:10px;fill:#8a8179}.kream-trade-list{display:grid;gap:5px;margin-top:9px;max-height:210px;overflow:auto}.kream-trade-row{display:flex;justify-content:space-between;gap:10px;padding:7px 8px;border-radius:10px;background:#fff8f0;font-size:11px}.kream-trade-row .date{color:var(--muted)}
 @media(max-width:560px){.product{grid-template-columns:96px 1fr}.product img{width:96px;height:96px}.detail-top{grid-template-columns:110px 1fr}.detail-top img{width:110px;height:110px}.filtergrid,.formgrid{grid-template-columns:1fr}.filtergrid .wide,.formgrid .wide{grid-column:auto}}
 </style>
 </head>
@@ -62,7 +63,7 @@ input:focus,select:focus,textarea:focus{border-color:#b6a7e0;box-shadow:0 0 0 3p
 <div class="app">
 <header>
   <div class="toprow">
-    <div class="brand"><div class="brickmark"></div><div><h1>LEGO Collector 2.0</h1><small id="catalogState">카탈로그 확인 중…</small></div></div>
+    <div class="brand"><div class="brickmark"></div><div><h1>LEGO Collector</h1><small id="catalogState">카탈로그 확인 중…</small></div></div>
     <button class="account-chip" id="accountChip" onclick="nav('settings')">기기 저장</button>
   </div>
 </header>
@@ -71,7 +72,7 @@ input:focus,select:focus,textarea:focus{border-color:#b6a7e0;box-shadow:0 0 0 3p
   <div class="hero">
     <h2>전체 LEGO 카탈로그</h2>
     <p>검색은 저장된 마스터 DB에서만 실행됩니다. 제품번호·한글명·영문명·별칭을 함께 찾습니다.</p>
-    <div class="searchbar"><input id="q" type="search" placeholder="예: 생텀, 76218, Sanctum" enterkeyhint="search"><button class="btn red" onclick="loadCatalog(1)">검색</button></div>
+    <div class="searchbar"><input id="q" type="search" placeholder="예: 생텀, 76218, Sanctum" enterkeyhint="search"><button class="btn red" onclick="submitSearch()">검색</button></div>
     <div style="display:flex;gap:7px;margin-top:8px"><button class="btn ghost" onclick="toggleFilters()">필터 · 정렬</button><button class="btn ghost" onclick="resetFilters()">초기화</button></div>
     <div id="filters" class="filters">
       <div class="filtergrid">
@@ -120,7 +121,8 @@ input:focus,select:focus,textarea:focus{border-color:#b6a7e0;box-shadow:0 0 0 3p
   <div class="card settings-card">
     <h3>자동 제품 업데이트</h3>
     <p id="syncText">마스터 카탈로그 동기화 상태를 확인 중입니다.</p>
-    <p>공용 제품 DB는 GitHub Actions가 자동 갱신하고, 개인 소장·관심 데이터는 이 기기 밖으로 전송하지 않습니다.</p>
+    <p>공용 제품 DB는 GitHub Actions가 자동 갱신합니다. 소장·관심 목록과 개인정보는 기기에만 저장하고, KREAM 자동 시세 갱신을 켠 경우 제품번호만 익명으로 공용 시세 대기열에 등록합니다.</p>
+    <label class="toggleline"><input id="marketWatchEnabled" type="checkbox" onchange="toggleMarketWatch(this.checked)"> KREAM 자동 시세 갱신</label>
   </div>
 </section>
 </main>
@@ -145,6 +147,7 @@ const displayName=x=>verifiedKo(x)||x?.name_en||x?.set_number||"이름 미확인
 const LOCAL_KEY="legoCollectorLocalV1";
 const LOCAL_SCHEMA=1;
 let page=1,pages=1,currentDetail=null,collection=[],wishlist=[],facetYears=[];
+let kreamHistoryCache={},kreamChartSpan={};
 
 function uid(){return globalThis.crypto?.randomUUID?crypto.randomUUID():"lc-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2)}
 function parseNum(v){const s=String(v??"").replace(/,/g,"").trim();return s===""?null:(Number.isFinite(+s)?+s:null)}
@@ -159,7 +162,7 @@ function saveLocal(){
 }
 function snapshotProduct(x){
   if(!x)return {};
-  const keep=["set_number","brickset_number","name_en","name_ko","name_ko_source","theme","subtheme","category","year","pieces","minifigs","released","image_url","thumbnail_url","price_krw","retail_us","launch_date","availability","bricklink_alt_no"];
+  const keep=["set_number","brickset_number","name_en","name_ko","name_ko_source","theme","subtheme","category","year","pieces","minifigs","released","image_url","thumbnail_url","price_krw","retail_us","launch_date","availability","bricklink_alt_no","kream_latest"];
   const out={};keep.forEach(k=>{if(x[k]!==undefined)out[k]=x[k]});return out
 }
 function updateLocalStatus(){if($("backupStatus"))$("backupStatus").textContent=`이 기기에 소장 ${collection.length}개 · 관심 ${wishlist.length}개 저장됨`}
@@ -176,12 +179,24 @@ function nav(id){
 function toggleFilters(){$("filters").classList.toggle("on")}
 function resetFilters(){["q","theme","subtheme","year","category"].forEach(id=>$(id).value="");$("sort").value="newest";$("includeUpcoming").checked=false;renderYearOptions();loadCatalog(1)}
 function onUpcomingChanged(){renderYearOptions();$("releaseLabel").textContent=$("includeUpcoming").checked?"출시 예정 포함":"출시 완료 제품";loadCatalog(1)}
-$("q").addEventListener("keydown",e=>{if(e.key==="Enter")loadCatalog(1)});
+function submitSearch(){
+  const q=$("q");
+  if(q) q.blur();
+  loadCatalog(1);
+}
+$("q").addEventListener("keydown",e=>{
+  if(e.key==="Enter"){
+    e.preventDefault();
+    submitSearch();
+  }
+});
 
 async function init(){
   loadLocal();if("serviceWorker" in navigator)navigator.serviceWorker.register("/sw.js").catch(()=>{});
   const h=await api("/api/v2/health");$("catalogState").textContent=h.catalog_ready?`마스터 DB ${(+h.catalog_count||0).toLocaleString()}개 · 검색 즉시`:"마스터 DB 준비 필요";
-  loadFacets();loadCatalog(1);loadSyncStatus();updateLocalStatus();setTimeout(()=>refreshLocalSnapshots(false),1200)
+  loadFacets();loadCatalog(1);loadSyncStatus();updateLocalStatus();
+  if($("marketWatchEnabled")) $("marketWatchEnabled").checked=marketWatchEnabled();
+  setTimeout(()=>{registerKreamWatches(false);refreshLocalSnapshots(false)},1200)
 }
 async function loadFacets(){
   const d=await api("/api/v2/catalog-facets");if(!d.ok)return;
@@ -209,17 +224,50 @@ function productCard(x){
 async function openDetail(n){
   $("detailModal").classList.add("on");$("detailSheet").innerHTML='<div class="empty">제품 정보 불러오는 중…</div>';
   const d=await api("/api/v2/catalog/"+encodeURIComponent(n));if(!d.ok){$("detailSheet").innerHTML='<button class="close" onclick="closeModal(\'detailModal\')">×</button><div class="empty">제품 정보를 찾지 못했습니다.</div>';return}
-  currentDetail=d.item;renderDetail(d.item)
+  currentDetail=d.item;renderDetail(d.item);
+  if(collection.some(x=>x.set_number===String(n))||wishlist.some(x=>x.set_number===String(n))) watchKreamNumbers([n]);
 }
 function renderDetail(x){
-  const img=x.image_url||x.thumbnail_url||x.bricklink_image_url||"",trades=x.kream_trades||[],latest=x.kream_latest;
-  $("detailSheet").innerHTML=`<button class="close" onclick="closeModal('detailModal')">×</button><div class="detail-top"><img src="${esc(img)}"><div><h3>${esc(displayName(x))}</h3>${verifiedKo(x)&&x.name_en?`<div class="sub">${esc(x.name_en)}</div>`:""}<div class="meta">#${esc(x.set_number)} · ${esc(x.theme||"")}${x.subtheme?` / ${esc(x.subtheme)}`:""}<br>${esc(x.year||"")}${x.pieces?` · ${(+x.pieces).toLocaleString()} pcs`:""}${x.minifigs?` · 미니피겨 ${x.minifigs}`:""}${x.launch_date?`<br>출시일 ${fmtDate(x.launch_date)}`:""}</div><div class="price">${x.price_krw?`한국 정가 ${won(x.price_krw)}`:(x.retail_us?`한국 정가 미확인 · US MSRP $${x.retail_us}`:"정가 미확인")}</div>${latest?`<div class="sub">KREAM 최근 체결 ${won(latest.price_krw)} · ${fmtDate(latest.trade_at)}</div>`:""}${x.brickset_url?`<div class="sub"><a href="${esc(x.brickset_url)}" target="_blank" rel="noopener">제품 데이터 출처 보기</a></div>`:""}</div></div>${historyChart(trades)}<div class="product-actions" style="margin-top:14px"><button class="btn red" onclick="quickAdd('${esc(x.set_number)}')">소장목록 등록</button><button class="btn green" onclick="addWish('${esc(x.set_number)}')">관심목록 등록</button></div>`
+  const img=x.image_url||x.thumbnail_url||x.bricklink_image_url||"",latest=x.kream_latest;
+  $("detailSheet").innerHTML=`<button class="close" onclick="closeModal('detailModal')">×</button>
+  <div class="detail-top"><img src="${esc(img)}"><div><h3>${esc(displayName(x))}</h3>${verifiedKo(x)&&x.name_en?`<div class="sub">${esc(x.name_en)}</div>`:""}
+  <div class="meta">#${esc(x.set_number)} · ${esc(x.theme||"")}${x.subtheme?` / ${esc(x.subtheme)}`:""}<br>${esc(x.year||"")}${x.pieces?` · ${(+x.pieces).toLocaleString()} pcs`:""}${x.minifigs?` · 미니피겨 ${x.minifigs}`:""}${x.launch_date?`<br>출시일 ${fmtDate(x.launch_date)}`:""}</div>
+  <div class="price">${x.price_krw?`한국 정가 ${won(x.price_krw)}`:(x.retail_us?`한국 정가 미확인 · US MSRP $${x.retail_us}`:"정가 미확인")}</div>
+  ${latest?`<div class="sub">KREAM 최근 체결 ${won(latest.price_krw)} · ${fmtTradeDate(latest.trade_at)}</div>`:""}
+  ${x.brickset_url?`<div class="sub"><a href="${esc(x.brickset_url)}" target="_blank" rel="noopener">제품 데이터 출처 보기</a></div>`:""}</div></div>
+  <div id="kreamHistory-${esc(x.set_number)}" class="kream-history-panel"><div class="muted">KREAM 실제 체결 이력 불러오는 중…</div></div>
+  <div class="product-actions" style="margin-top:14px"><button class="btn red" onclick="quickAdd('${esc(x.set_number)}')">소장목록 등록</button><button class="btn green" onclick="addWish('${esc(x.set_number)}')">관심목록 등록</button></div>`;
+  loadKreamHistory(x.set_number);
 }
-function historyChart(trades){
-  if(!trades||trades.length<2)return "";const a=[...trades].reverse().filter(x=>+x.price_krw>0);if(a.length<2)return "";
-  const vals=a.map(x=>+x.price_krw),min=Math.min(...vals),max=Math.max(...vals),span=Math.max(1,max-min),w=600,h=135,pad=8;
-  const pts=a.map((x,i)=>`${pad+(w-2*pad)*(i/(a.length-1))},${pad+(h-2*pad)*(1-(+x.price_krw-min)/span)}`).join(" ");
-  return `<div class="chart"><b>KREAM 체결가 변동</b><svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><polyline fill="none" stroke="#8e7bd1" stroke-width="4" points="${pts}"/></svg><div class="chart-labels"><span>${fmtDate(a[0].trade_at)} · ${won(a[0].price_krw)}</span><span>${fmtDate(a[a.length-1].trade_at)} · ${won(a[a.length-1].price_krw)}</span></div></div>`
+function fmtTradeDate(value){
+  if(!value)return "";
+  const d=new Date(value);if(Number.isNaN(d.getTime()))return fmtDate(value);
+  return new Intl.DateTimeFormat("ko-KR",{timeZone:"Asia/Seoul",year:"2-digit",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}).format(d)
+}
+function kreamSpanLabel(span){return ({"1m":"1개월","3m":"3개월","6m":"6개월","1y":"1년","all":"전체"})[span]||span}
+function kreamChartSvg(data){
+  const pts=(data||[]).filter(x=>+x.value>0);if(pts.length<2)return '<div class="empty" style="padding:18px">차트를 그릴 체결 데이터가 아직 부족합니다.</div>';
+  const w=620,h=180,left=12,right=12,top=12,bottom=25,vals=pts.map(x=>+x.value),min=Math.min(...vals),max=Math.max(...vals),span=Math.max(1,max-min);
+  const xy=pts.map((p,i)=>({x:left+(w-left-right)*(i/(pts.length-1)),y:top+(h-top-bottom)*(1-(+p.value-min)/span),p}));
+  const poly=xy.map(v=>`${v.x.toFixed(1)},${v.y.toFixed(1)}`).join(" ");
+  const grid=[0,.5,1].map(fr=>{const y=top+(h-top-bottom)*fr;return `<line class="grid" x1="${left}" y1="${y}" x2="${w-right}" y2="${y}"/>`}).join("");
+  const dots=xy.length<=40?xy.map(v=>`<circle class="dot" cx="${v.x.toFixed(1)}" cy="${v.y.toFixed(1)}" r="2.7"/>`).join(""):"";
+  return `<svg class="kream-market-chart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${grid}<polyline class="line" points="${poly}"/>${dots}<text x="${left}" y="${h-7}">${esc(fmtDate(pts[0].time))}</text><text x="${w-right}" y="${h-7}" text-anchor="end">${esc(fmtDate(pts[pts.length-1].time))}</text></svg>`
+}
+function renderKreamHistory(number,span){
+  const n=String(number),d=kreamHistoryCache[n],panel=$("kreamHistory-"+n);if(!d||!panel)return;
+  const charts=d.charts||{},available=["1m","3m","6m","1y","all"].filter(k=>(charts[k]||[]).length>=2);
+  let use=span||kreamChartSpan[n]||available[0]||"all";if(!available.includes(use)&&available.length)use=available[0];kreamChartSpan[n]=use;
+  const tabs=["1m","3m","6m","1y","all"].map(k=>`<button class="${k===use?"on":""}" onclick="renderKreamHistory('${esc(n)}','${k}')">${kreamSpanLabel(k)}</button>`).join("");
+  const latest=d.latest,items=d.items||[];
+  const trades=items.slice(0,20).map(x=>`<div class="kream-trade-row"><span class="date">${esc(x.trade_date||fmtTradeDate(x.trade_at))}${x.option_name?` · ${esc(x.option_name)}`:""}</span><b>${won(x.price_krw)}</b></div>`).join("");
+  if(!latest){panel.innerHTML='<div class="kream-history-head"><b>KREAM 실제 체결가</b></div><div class="empty" style="padding:18px">저장된 체결 이력이 없습니다.<br>소장·관심 등록 제품은 백그라운드 시세 갱신 대상에 추가됩니다.</div>';return}
+  panel.innerHTML=`<div class="kream-history-head"><b>KREAM 실제 체결가</b><div class="kream-history-meta">최근 체결 ${won(latest.price_krw)}<br>${esc(latest.trade_date||fmtTradeDate(latest.trade_at))} · 저장 ${d.trade_count||items.length}건</div></div><div class="kream-tabs">${tabs}</div>${kreamChartSvg(charts[use]||[])}<div class="sub" style="margin-top:8px">최근 체결 내역</div><div class="kream-trade-list">${trades}</div>`
+}
+async function loadKreamHistory(number){
+  const n=String(number),panel=$("kreamHistory-"+n);if(!panel)return;
+  if(kreamHistoryCache[n]){renderKreamHistory(n,kreamChartSpan[n]);return}
+  try{const d=await api("/api/v2/kream-history/"+encodeURIComponent(n));if(!d.ok)throw new Error();kreamHistoryCache[n]=d;renderKreamHistory(n,"1m")}catch(e){panel.innerHTML='<div class="muted">KREAM 체결 이력을 불러오지 못했습니다.</div>'}
 }
 function closeModal(id){$(id).classList.remove("on")}
 function modalBackdrop(e,id){if(e.target.id===id)closeModal(id)}
@@ -231,7 +279,7 @@ async function quickAdd(n){
 function submitAdd(n){
   const x=currentDetail||{},raw=$("newPrice").value.trim(),latest=x.kream_latest||null;
   collection.unshift({id:uid(),set_number:n,condition:$("newCondition").value,purchase_date:$("newDate").value||null,purchase_price:raw===""?(x.price_krw??null):parseNum(raw),current_value:latest?.price_krw??x.price_krw??null,valuation_source:latest?"KREAM 최근 체결가":"정가 기준",valuation_trade_at:latest?.trade_at||null,sold:false,sold_price:null,sold_date:null,memo:$("newMemo").value||"",product:snapshotProduct(x),created_at:new Date().toISOString(),updated_at:new Date().toISOString()});
-  saveLocal();closeModal("editModal");closeModal("detailModal");loadCollection();nav("collection")
+  saveLocal();watchKreamNumbers([n]);closeModal("editModal");closeModal("detailModal");loadCollection();nav("collection")
 }
 function loadCollection(){loadLocal();drawCollection()}
 function productOf(row){return row.product||{set_number:row.set_number}}
@@ -243,7 +291,7 @@ function drawCollection(){
 }
 function collectionCard(x){
   const p=productOf(x),img=p.thumbnail_url||p.image_url||"",pl=(+x.current_value||0)-(+x.purchase_price||0);
-  return `<div class="card collection-card"><div class="collection-head"><img src="${esc(img)}"><div><div class="title">${esc(displayName(p))}</div><div class="sub">#${esc(x.set_number)} · ${esc(p.theme||"")}${p.launch_date?` · 출시 ${fmtDate(p.launch_date)}`:""}</div><div class="collection-money"><span class="pill">정가 ${won(p.price_krw)}</span><span class="pill">구매 ${won(x.purchase_price)}</span><span class="pill">평가 ${won(x.current_value)}</span><span class="pill">손익 ${pl>=0?"+":""}${won(pl)}</span></div></div></div><div class="row-actions"><button class="btn ghost" onclick="editCollection('${x.id}')">수정</button><button class="btn ghost" onclick="openDetail('${esc(x.set_number)}')">제품정보</button><button class="btn ghost" onclick="deleteCollection('${x.id}')">삭제</button></div></div>`
+  return `<div class="card collection-card"><div class="collection-head"><img src="${esc(img)}"><div><div class="title">${esc(displayName(p))}</div><div class="sub">#${esc(x.set_number)} · ${esc(p.theme||"")}${p.launch_date?` · 출시 ${fmtDate(p.launch_date)}`:""}</div><div class="collection-money"><span class="pill">정가 ${won(p.price_krw)}</span><span class="pill">구매 ${won(x.purchase_price)}</span><span class="pill">평가 ${won(x.current_value)}</span><span class="pill">손익 ${pl>=0?"+":""}${won(pl)}</span></div>${x.valuation_source?`<div class="sub">${esc(x.valuation_source)}${x.valuation_trade_at?` · 실제 체결 ${esc(fmtTradeDate(x.valuation_trade_at))}`:""}</div>`:""}</div></div><div class="row-actions"><button class="btn ghost" onclick="editCollection('${x.id}')">수정</button><button class="btn ghost" onclick="openDetail('${esc(x.set_number)}')">제품정보</button><button class="btn ghost" onclick="deleteCollection('${x.id}')">삭제</button></div></div>`
 }
 function editCollection(id){
   const x=collection.find(v=>v.id===id);if(!x)return;const p=productOf(x);$("editModal").classList.add("on");
@@ -256,12 +304,26 @@ function deleteCollection(id){if(!confirm("이 소장 항목을 삭제할까요?
 async function addWish(n){
   if(wishlist.some(x=>x.set_number===n)){alert("이미 관심목록에 있는 제품입니다.");return}
   let x=currentDetail?.set_number===n?currentDetail:null;if(!x){const d=await api("/api/v2/catalog/"+encodeURIComponent(n));if(!d.ok)return alert("제품 정보를 불러오지 못했습니다.");x=d.item}
-  wishlist.unshift({id:uid(),set_number:n,target_price:null,memo:"",product:snapshotProduct(x),created_at:new Date().toISOString(),updated_at:new Date().toISOString()});saveLocal();alert("관심목록에 등록했습니다.");loadWishlist()
+  const latest=x.kream_latest||null;
+  wishlist.unshift({id:uid(),set_number:n,target_price:null,memo:"",current_value:latest?.price_krw??null,valuation_source:latest?"KREAM 최근 체결가":null,valuation_trade_at:latest?.trade_at||null,product:snapshotProduct(x),created_at:new Date().toISOString(),updated_at:new Date().toISOString()});saveLocal();watchKreamNumbers([n]);alert("관심목록에 등록했습니다.");loadWishlist()
 }
 function loadWishlist(){
-  loadLocal();$("wishlistList").innerHTML=wishlist.map(x=>{const p=x.product||{};return `<div class="card product"><img src="${esc(p.thumbnail_url||p.image_url||"")}"><div><div class="title">${esc(displayName(p))}</div><div class="meta">#${esc(x.set_number)} · ${esc(p.theme||"")} · ${esc(p.year||"")}</div><div class="price">${won(p.price_krw)}</div><div class="product-actions"><button class="btn lav" onclick="openDetail('${esc(x.set_number)}')">상세</button><button class="btn ghost" onclick="deleteWish('${x.id}')">삭제</button></div></div></div>`}).join("")||'<div class="card empty">관심 제품이 없습니다.</div>'
+  loadLocal();$("wishlistList").innerHTML=wishlist.map(x=>{const p=x.product||{};return `<div class="card product"><img src="${esc(p.thumbnail_url||p.image_url||"")}"><div><div class="title">${esc(displayName(p))}</div><div class="meta">#${esc(x.set_number)} · ${esc(p.theme||"")} · ${esc(p.year||"")}</div><div class="price">정가 ${won(p.price_krw)}</div>${x.current_value?`<div class="sub">KREAM 최근 체결 ${won(x.current_value)}${x.valuation_trade_at?` · ${esc(fmtTradeDate(x.valuation_trade_at))}`:""}</div>`:""}<div class="product-actions"><button class="btn lav" onclick="openDetail('${esc(x.set_number)}')">상세</button><button class="btn ghost" onclick="deleteWish('${x.id}')">삭제</button></div></div></div>`}).join("")||'<div class="card empty">관심 제품이 없습니다.</div>'
 }
 function deleteWish(id){wishlist=wishlist.filter(x=>x.id!==id);saveLocal();loadWishlist()}
+function marketWatchEnabled(){return localStorage.getItem("legoMarketWatch")!=="0"}
+function toggleMarketWatch(enabled){localStorage.setItem("legoMarketWatch",enabled?"1":"0");if(enabled)registerKreamWatches(true)}
+async function watchKreamNumbers(numbers){
+  if(!marketWatchEnabled())return;
+  const nums=[...new Set((numbers||[]).map(x=>String(x||"").replace(/\D/g,"")).filter(Boolean))].slice(0,100);if(!nums.length)return;
+  try{await api("/api/v2/kream-watch",{method:"POST",body:{numbers:nums}})}catch(e){}
+}
+function registerKreamWatches(force=false){
+  if(!marketWatchEnabled())return;
+  const now=Date.now(),last=+localStorage.getItem("legoMarketWatchRegisteredAt")||0;if(!force&&now-last<24*60*60*1000)return;
+  const nums=[...new Set([...collection.map(x=>x.set_number),...wishlist.map(x=>x.set_number)].filter(Boolean))];
+  if(nums.length)watchKreamNumbers(nums);localStorage.setItem("legoMarketWatchRegisteredAt",String(now))
+}
 function exportBackup(){
   loadLocal();const payload={app:"LEGO Collector",format:"local-backup",schema_version:LOCAL_SCHEMA,exported_at:new Date().toISOString(),data:{collection,wishlist}};
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"}),a=document.createElement("a"),d=new Date(),stamp=d.toISOString().slice(0,16).replace(/[-:T]/g,"");
@@ -281,10 +343,11 @@ function clearLocalData(){if(!confirm("이 기기에 저장된 소장목록과 �
 async function refreshLocalSnapshots(force=false){
   const now=Date.now(),last=+localStorage.getItem("lego2LastSnapshotRefresh")||0;if(!force&&now-last<12*60*60*1000)return;
   const nums=[...new Set([...collection.map(x=>x.set_number),...wishlist.map(x=>x.set_number)].filter(Boolean))];if(!nums.length){localStorage.setItem("lego2LastSnapshotRefresh",String(now));return}
+  watchKreamNumbers(nums);
   let changed=false;
   for(let i=0;i<nums.length;i+=6){
     const results=await Promise.all(nums.slice(i,i+6).map(async n=>{try{return [n,await api("/api/v2/catalog/"+encodeURIComponent(n))]}catch(e){return [n,null]}}));
-    for(const [n,d] of results){if(!d?.ok||!d.item)continue;const p=snapshotProduct(d.item);collection.filter(x=>x.set_number===n).forEach(x=>{x.product=p;const latest=d.item.kream_latest;if(latest?.trade_at&&(!x.valuation_trade_at||String(latest.trade_at)>String(x.valuation_trade_at))){x.current_value=latest.price_krw;x.valuation_source="KREAM 최근 체결가";x.valuation_trade_at=latest.trade_at}x.updated_at=new Date().toISOString();changed=true});wishlist.filter(x=>x.set_number===n).forEach(x=>{x.product=p;x.updated_at=new Date().toISOString();changed=true})}
+    for(const [n,d] of results){if(!d?.ok||!d.item)continue;const p=snapshotProduct(d.item);collection.filter(x=>x.set_number===n).forEach(x=>{x.product=p;const latest=d.item.kream_latest;if(latest?.trade_at&&(!x.valuation_trade_at||String(latest.trade_at)>String(x.valuation_trade_at))){x.current_value=latest.price_krw;x.valuation_source="KREAM 최근 체결가";x.valuation_trade_at=latest.trade_at}x.updated_at=new Date().toISOString();changed=true});wishlist.filter(x=>x.set_number===n).forEach(x=>{x.product=p;const latest=d.item.kream_latest;if(latest?.trade_at&&(!x.valuation_trade_at||String(latest.trade_at)>String(x.valuation_trade_at))){x.current_value=latest.price_krw;x.valuation_source="KREAM 최근 체결가";x.valuation_trade_at=latest.trade_at}x.updated_at=new Date().toISOString();changed=true})}
   }
   localStorage.setItem("lego2LastSnapshotRefresh",String(now));if(changed){saveLocal();if($("collection").classList.contains("on"))drawCollection();if($("wishlist").classList.contains("on"))loadWishlist()}
 }
