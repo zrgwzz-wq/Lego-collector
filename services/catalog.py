@@ -53,6 +53,7 @@ CURATED_SEARCH_TERMS = {
     "ninjago": ["닌자고"],
     "duplo": ["듀플로"],
     "friends": ["프렌즈"],
+    "sanctum sanctorum": ["생텀 생토럼", "생텀", "생토럼"],
     "sanctum": ["생텀"],
     "sanctorum": ["생토럼"],
     "ferrari": ["페라리"],
@@ -189,20 +190,25 @@ def get_set(set_number):
         r = rest_get(MASTER_TABLE, {"select": cols, "set_number": f"eq.{n}", "limit": "1"}, timeout=8)
         if r.ok and r.json():
             row = r.json()[0]
-            # Read existing KREAM history only; browsing never calls KREAM.
+            # Product detail stays fast: only the newest stored KREAM trade is loaded here.
+            # Full trade history/chart is served by /api/v2/kream-history/<set_number>.
             try:
                 t = rest_get(
                     "lego_kream_trades",
-                    {"select": "price_krw,trade_at,source_url", "set_number": f"eq.{n}", "order": "trade_at.desc", "limit": "2000"},
-                    timeout=8
+                    {
+                        "select": "price_krw,trade_at,source_url,model_number,kream_product_id,option_name",
+                        "set_number": f"eq.{n}",
+                        "order": "trade_at.desc",
+                        "limit": "1",
+                    },
+                    timeout=8,
                 )
                 if t.ok:
                     trades = t.json() or []
-                    row["kream_trades"] = trades
                     if trades:
                         row["kream_latest"] = trades[0]
             except Exception:
-                row["kream_trades"] = []
+                pass
             return row
     except Exception:
         pass
@@ -410,6 +416,79 @@ def upsert_aliases(rows):
         except Exception:
             ok = False
     return ok
+
+
+ALIAS_BACKFILL_VERSION = 2
+
+def backfill_search_aliases(batch_size=1000, max_batches=4):
+    """Backfill search aliases for catalog rows that existed before alias rules changed.
+
+    New/updated rows are already indexed by upsert_aliases(); this cursor only needs to
+    sweep the historical catalog once per ALIAS_BACKFILL_VERSION.
+    """
+    if not table_ready():
+        return {"ok": False, "error": "master_table_missing"}
+    try:
+        current_version = int(state_get("alias_backfill_version", 0) or 0)
+    except Exception:
+        current_version = 0
+    if current_version >= ALIAS_BACKFILL_VERSION:
+        return {"ok": True, "complete": True, "processed": 0, "version": current_version}
+
+    try:
+        offset = int(state_get("alias_backfill_offset", 0) or 0)
+    except Exception:
+        offset = 0
+    processed = 0
+    ok = True
+    batches = 0
+    cols = "set_number,name_en,name_ko,name_ko_source,theme,subtheme,bricklink_name,bricklink_alt_no"
+
+    while batches < max_batches:
+        batches += 1
+        try:
+            r = rest_get(
+                MASTER_TABLE,
+                {
+                    "select": cols,
+                    "order": "set_number.asc",
+                    "offset": str(offset),
+                    "limit": str(batch_size),
+                },
+                timeout=20,
+            )
+            rows = r.json() if r.ok else []
+        except Exception:
+            rows = []
+            ok = False
+
+        if not rows:
+            if ok:
+                state_set("alias_backfill_version", ALIAS_BACKFILL_VERSION)
+                state_set("alias_backfill_offset", 0)
+                return {
+                    "ok": True, "complete": True, "processed": processed,
+                    "offset": 0, "version": ALIAS_BACKFILL_VERSION,
+                }
+            break
+
+        ok = upsert_aliases(rows) and ok
+        processed += len(rows)
+        offset += len(rows)
+        state_set("alias_backfill_offset", offset)
+
+        if len(rows) < batch_size:
+            state_set("alias_backfill_version", ALIAS_BACKFILL_VERSION)
+            state_set("alias_backfill_offset", 0)
+            return {
+                "ok": ok, "complete": True, "processed": processed,
+                "offset": 0, "version": ALIAS_BACKFILL_VERSION,
+            }
+
+    return {
+        "ok": ok, "complete": False, "processed": processed,
+        "offset": offset, "version": current_version,
+    }
 
 def sync_catalog(max_calls=24):
     if not configured():
