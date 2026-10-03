@@ -22,6 +22,7 @@ STATE_TABLE = "lego_catalog_sync_state"
 FILTER_CACHE = {"t": 0, "data": None}
 LOCAL_KR = None
 SYNC_LOCK = threading.Lock()
+FULL_SCAN_VERSION = 2
 
 AUTO_TRANSLATION_MARKERS = ("자동 번역", "machine translation", "google translate", "auto translate")
 
@@ -423,37 +424,19 @@ def sync_catalog(max_calls=24):
     calls = 0
     saved = 0
     overlays = _verified_overlays()
+
     try:
-        initial_complete = bool(state_get("initial_complete", False))
+        # v2 catalog repair:
+        # Previous importer could mark the catalog complete after scanning only the
+        # remaining years. Run one new full scan across ALL Brickset years.
+        scan_version = int(state_get("full_scan_version", 0) or 0)
 
-        if not initial_complete:
-            # Fast initial mode:
-            # Brickset accepts a comma-delimited list for the year parameter.
-            # Instead of spending one getSets call per year, pack all remaining
-            # years into one paginated query (up to 500 sets per call).
-            years = state_get("years", None)
-            if not isinstance(years, list) or not years:
-                years = _years()
-                state_set("years", years)
-
-            # Preserve progress already made by the older year-by-year importer.
-            yi = int(state_get("year_index", 0) or 0)
-            yi = max(0, min(yi, len(years)))
-            remaining_years = years[yi:]
-
-            if not remaining_years:
-                state_set("initial_complete", True)
-                state_set("last_sync_date", _today())
-                return {
-                    "ok": True, "mode": "initial_bulk", "calls": 0,
-                    "rows_saved": 0, "initial_complete": True
-                }
-
-            page = int(state_get("bulk_page", 1) or 1)
-            page = max(1, page)
-            year_filter = ",".join(str(y) for y in remaining_years)
-            total_matches = 0
+        if scan_version < FULL_SCAN_VERSION:
+            years = _years()
+            year_filter = ",".join(str(y) for y in years)
+            page = max(1, int(state_get("full_scan_page", 1) or 1))
             pages = 1
+            total_matches = 0
 
             while calls < max_calls:
                 d = _brickset_call("getSets", {
@@ -466,13 +449,13 @@ def sync_catalog(max_calls=24):
                     })
                 })
                 calls += 1
-
                 sets = d.get("sets", []) or []
                 rows = [
                     _row_from_brickset(x, overlays)
                     for x in sets
                     if x.get("number") and _real_named_item(x)
                 ]
+
                 if rows:
                     upsert_master(rows)
                     upsert_aliases(rows)
@@ -481,56 +464,48 @@ def sync_catalog(max_calls=24):
                 total_matches = int(d.get("matches") or len(sets))
                 pages = max(1, math.ceil(total_matches / 500))
 
-                if page >= pages:
-                    page += 1
-                    break
-
-                page += 1
-                state_set("bulk_page", page)
                 state_set("last_progress", {
-                    "mode": "initial_bulk",
+                    "mode": "full_repair",
                     "page": page,
                     "pages": pages,
                     "calls": calls,
                     "rows_saved": saved,
-                    "remaining_years": len(remaining_years),
                     "total_matches": total_matches,
+                    "db_count": catalog_count(),
                 })
 
-            done = page > pages
+                if page >= pages:
+                    break
+
+                page += 1
+                state_set("full_scan_page", page)
+
+            done = page >= pages
             if done:
+                state_set("full_scan_version", FULL_SCAN_VERSION)
+                state_set("full_scan_page", 1)
                 state_set("initial_complete", True)
                 state_set("last_sync_date", _today())
-                state_set("bulk_page", 1)
             else:
-                state_set("bulk_page", page)
-
-            state_set("last_progress", {
-                "mode": "initial_bulk",
-                "page": min(page, pages),
-                "pages": pages,
-                "calls": calls,
-                "rows_saved": saved,
-                "remaining_years": len(remaining_years),
-                "total_matches": total_matches,
-                "initial_complete": done,
-            })
+                state_set("initial_complete", False)
+                state_set("full_scan_page", page + 1)
 
             return {
                 "ok": True,
-                "mode": "initial_bulk",
+                "mode": "full_repair",
                 "calls": calls,
                 "rows_saved": saved,
                 "initial_complete": done,
-                "page": min(page, pages),
+                "page": page,
                 "pages": pages,
                 "total_matches": total_matches,
-                "remaining_years": len(remaining_years),
+                "db_count": catalog_count(),
             }
 
-        # After the initial catalog is complete, only fetch changes.
+        # Normal incremental update after the one-time full repair.
         last = str(state_get("last_sync_date", _today()) or _today())
         page = 1
+
         while calls < max_calls:
             d = _brickset_call("getSets", {
                 "params": json.dumps({
@@ -548,10 +523,12 @@ def sync_catalog(max_calls=24):
                 for x in sets
                 if x.get("number") and _real_named_item(x)
             ]
+
             if rows:
                 upsert_master(rows)
                 upsert_aliases(rows)
                 saved += len(rows)
+
             matches = int(d.get("matches") or len(sets))
             pages = max(1, math.ceil(matches / 500))
             if page >= pages:
@@ -560,13 +537,21 @@ def sync_catalog(max_calls=24):
 
         state_set("last_sync_date", _today())
         return {
-            "ok": True, "mode": "incremental", "calls": calls,
-            "rows_saved": saved, "initial_complete": True
+            "ok": True,
+            "mode": "incremental",
+            "calls": calls,
+            "rows_saved": saved,
+            "initial_complete": True,
+            "db_count": catalog_count(),
         }
+
     except Exception as e:
         return {
-            "ok": False, "error": str(e)[:300],
-            "calls": calls, "rows_saved": saved
+            "ok": False,
+            "error": str(e)[:500],
+            "calls": calls,
+            "rows_saved": saved,
+            "db_count": catalog_count(),
         }
     finally:
         SYNC_LOCK.release()
