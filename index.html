@@ -123,6 +123,7 @@ input:focus,select:focus,textarea:focus{border-color:#b6a7e0;box-shadow:0 0 0 3p
     <p id="syncText">마스터 카탈로그 동기화 상태를 확인 중입니다.</p>
     <p>공용 제품 DB는 GitHub Actions가 자동 갱신합니다. 소장·관심 목록과 개인정보는 기기에만 저장하고, KREAM 자동 시세 갱신을 켠 경우 제품번호만 익명으로 공용 시세 대기열에 등록합니다.</p>
     <label class="toggleline"><input id="marketWatchEnabled" type="checkbox" onchange="toggleMarketWatch(this.checked)"> KREAM 자동 시세 갱신</label>
+    <div id="kreamWatchStatus" class="muted" style="margin-top:7px">시세 추적 대기열 등록 상태를 확인 중입니다.</div>
   </div>
 </section>
 </main>
@@ -148,6 +149,7 @@ const LOCAL_KEY="legoCollectorLocalV1";
 const LOCAL_SCHEMA=1;
 let page=1,pages=1,currentDetail=null,collection=[],wishlist=[],facetYears=[];
 let kreamHistoryCache={},kreamChartSpan={};
+let kreamWatchRegisteredThisSession=false,kreamWatchRetryTimer=null;
 
 function uid(){return globalThis.crypto?.randomUUID?crypto.randomUUID():"lc-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2)}
 function parseNum(v){const s=String(v??"").replace(/,/g,"").trim();return s===""?null:(Number.isFinite(+s)?+s:null)}
@@ -196,6 +198,7 @@ async function init(){
   const h=await api("/api/v2/health");$("catalogState").textContent=h.catalog_ready?`마스터 DB ${(+h.catalog_count||0).toLocaleString()}개 · 검색 즉시`:"마스터 DB 준비 필요";
   loadFacets();loadCatalog(1);loadSyncStatus();updateLocalStatus();
   if($("marketWatchEnabled")) $("marketWatchEnabled").checked=marketWatchEnabled();
+  setKreamWatchStatus(marketWatchEnabled()?"소장·관심 제품을 시세 추적 대기열에 등록 중…":"KREAM 자동 시세 갱신이 꺼져 있습니다.");
   setTimeout(()=>{registerKreamWatches(false);refreshLocalSnapshots(false)},1200)
 }
 async function loadFacets(){
@@ -312,18 +315,64 @@ function loadWishlist(){
 }
 function deleteWish(id){wishlist=wishlist.filter(x=>x.id!==id);saveLocal();loadWishlist()}
 function marketWatchEnabled(){return localStorage.getItem("legoMarketWatch")!=="0"}
-function toggleMarketWatch(enabled){localStorage.setItem("legoMarketWatch",enabled?"1":"0");if(enabled)registerKreamWatches(true)}
+function setKreamWatchStatus(msg){const el=$("kreamWatchStatus");if(el)el.textContent=msg}
+function toggleMarketWatch(enabled){
+  localStorage.setItem("legoMarketWatch",enabled?"1":"0");
+  kreamWatchRegisteredThisSession=false;
+  if(kreamWatchRetryTimer){clearTimeout(kreamWatchRetryTimer);kreamWatchRetryTimer=null}
+  if(enabled){
+    setKreamWatchStatus("소장·관심 제품을 시세 추적 대기열에 등록 중…");
+    registerKreamWatches(true);
+  }else{
+    setKreamWatchStatus("KREAM 자동 시세 갱신이 꺼져 있습니다.");
+  }
+}
 async function watchKreamNumbers(numbers){
-  if(!marketWatchEnabled())return;
-  const nums=[...new Set((numbers||[]).map(x=>String(x||"").replace(/\D/g,"")).filter(Boolean))].slice(0,100);if(!nums.length)return;
-  try{await api("/api/v2/kream-watch",{method:"POST",body:{numbers:nums}})}catch(e){}
+  if(!marketWatchEnabled())return {ok:false,disabled:true,watched:0};
+  const nums=[...new Set((numbers||[]).map(x=>String(x||"").replace(/\D/g,"")).filter(Boolean))].slice(0,100);
+  if(!nums.length)return {ok:true,watched:0};
+  try{
+    return await api("/api/v2/kream-watch",{method:"POST",body:{numbers:nums}});
+  }catch(e){
+    return {ok:false,error:"network_error",watched:0};
+  }
 }
-function registerKreamWatches(force=false){
-  if(!marketWatchEnabled())return;
-  const now=Date.now(),last=+localStorage.getItem("legoMarketWatchRegisteredAt")||0;if(!force&&now-last<24*60*60*1000)return;
-  const nums=[...new Set([...collection.map(x=>x.set_number),...wishlist.map(x=>x.set_number)].filter(Boolean))];
-  if(nums.length)watchKreamNumbers(nums);localStorage.setItem("legoMarketWatchRegisteredAt",String(now))
+async function registerKreamWatches(force=false){
+  if(!marketWatchEnabled()){
+    setKreamWatchStatus("KREAM 자동 시세 갱신이 꺼져 있습니다.");
+    return false;
+  }
+  if(kreamWatchRegisteredThisSession&&!force)return true;
+
+  const nums=[...new Set([...collection.map(x=>x.set_number),...wishlist.map(x=>x.set_number)].map(x=>String(x||"").replace(/\D/g,"")).filter(Boolean))];
+  if(!nums.length){
+    kreamWatchRegisteredThisSession=true;
+    setKreamWatchStatus("소장·관심 제품을 등록하면 자동으로 시세 추적 대상에 추가됩니다.");
+    return true;
+  }
+
+  setKreamWatchStatus(`시세 추적 대상 ${nums.length}개 등록 중…`);
+  const d=await watchKreamNumbers(nums);
+  if(d?.ok){
+    kreamWatchRegisteredThisSession=true;
+    localStorage.setItem("legoMarketWatchRegisteredAt",String(Date.now()));
+    setKreamWatchStatus(`시세 추적 대상 ${d.watched??nums.length}개 등록 완료 · GitHub Actions가 백그라운드에서 갱신합니다.`);
+    return true;
+  }
+
+  // A failed registration must never create a 24-hour suppression window.
+  localStorage.removeItem("legoMarketWatchRegisteredAt");
+  kreamWatchRegisteredThisSession=false;
+  setKreamWatchStatus("시세 추적 대기열 등록 실패 · 잠시 후 자동 재시도합니다.");
+  if(!kreamWatchRetryTimer){
+    kreamWatchRetryTimer=setTimeout(()=>{
+      kreamWatchRetryTimer=null;
+      registerKreamWatches(true);
+    },5000);
+  }
+  return false;
 }
+
 function exportBackup(){
   loadLocal();const payload={app:"LEGO Collector",format:"local-backup",schema_version:LOCAL_SCHEMA,exported_at:new Date().toISOString(),data:{collection,wishlist}};
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"}),a=document.createElement("a"),d=new Date(),stamp=d.toISOString().slice(0,16).replace(/[-:T]/g,"");
