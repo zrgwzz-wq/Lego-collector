@@ -10,6 +10,8 @@ from .supabase_client import configured, rest_get, rest_post, rest_patch
 TRADES_TABLE = "lego_kream_trades"
 WATCH_TABLE = "lego_kream_watch"
 MAX_HISTORY_PAGES = 40
+CHART_OPTION = "__KREAM_CHART__"
+KREAM_API = "https://api.kream.co.kr"
 
 # LEGO set number -> alternate model number used on KREAM.
 MODEL_ALIASES = {
@@ -31,6 +33,8 @@ def _headers(referer=None, accept_json=False):
     }
     if accept_json:
         h["Accept"] = "application/json, text/plain, */*"
+        h["x-kream-api-version"] = "30"
+        h["Origin"] = "https://kream.co.kr"
     if referer:
         h["Referer"] = referer
     return h
@@ -363,14 +367,158 @@ def _public_html_trades(ctx):
     return rows
 
 
+
+def _visible_trade_rows(body_text, ctx):
+    """Parse public completed-trade rows from current KREAM PDP layouts.
+
+    KREAM exposes at least two public layouts:
+    1) tabbed: '체결 거래 / 판매 입찰 / 구매 입찰'
+    2) compact: '거래 N' followed directly by recent ONE SIZE trades
+
+    The old parser stopped at '판매 입찰', but that label appears before the
+    trade rows in the tabbed layout, which caused zero parsed transactions.
+    """
+    body = str(body_text or "")
+    if not body:
+        return []
+
+    pos = body.find("체결 거래")
+    if pos < 0:
+        m = re.search(r"거래\s*[0-9,]+", body)
+        pos = m.start() if m else 0
+
+    area = body[pos:pos + 12000]
+
+    # Only stop at markers that occur after the public trade rows.
+    stops = []
+    for marker in (
+        "모든 시세는 로그인 후",
+        "거래 내역 더보기",
+        "스타일 리뷰",
+        "상세 정보",
+        "고객센터",
+    ):
+        p = area.find(marker, 1)
+        if p > 0:
+            stops.append(p)
+    if stops:
+        area = area[:min(stops)]
+
+    rows = []
+    seen = set()
+
+    # LEGO KREAM listings use ONE SIZE. Requiring ONE SIZE + price + date keeps
+    # current ask/bid prices out of the completed-trade dataset.
+    pattern = re.compile(
+        r"ONE\s*SIZE\s*"
+        r"([1-9][0-9]{0,2}(?:,[0-9]{3})+)\s*원\s*"
+        r"((?:\d{2}/\d{2}/\d{2})|(?:\d+\s*(?:분|시간|일)\s*전))",
+        re.I,
+    )
+
+    for m in pattern.finditer(area):
+        try:
+            price = int(m.group(1).replace(",", ""))
+        except Exception:
+            continue
+        if price < 1000 or price > 10000000:
+            continue
+
+        trade_at = _fallback_trade_time(m.group(2))
+        if not trade_at:
+            continue
+
+        key = (trade_at, price)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        rows.append({
+            "set_number": ctx["number"],
+            "kream_product_id": ctx["product_id"],
+            "model_number": ctx.get("model_number"),
+            "price_krw": price,
+            "option_name": "ONE SIZE",
+            "trade_at": trade_at,
+            "source_url": ctx.get("source_url"),
+        })
+
+    rows.sort(key=lambda x: str(x.get("trade_at") or ""), reverse=True)
+    return rows
+
+
+def _chart_rows_from_payload(payload, ctx):
+    """Convert KREAM's own daily chart to storage rows without treating them as transactions."""
+    if not isinstance(payload, dict):
+        return []
+    charts = payload.get("charts") or []
+    if isinstance(charts, dict):
+        charts = list(charts.values())
+
+    all_data = None
+    for chart in charts:
+        if isinstance(chart, dict) and str(chart.get("span") or "").lower() == "all":
+            all_data = chart.get("data") or []
+            break
+    if all_data is None and charts:
+        # Prefer the longest available series when 'all' is not explicitly present.
+        candidates = [c.get("data") or [] for c in charts if isinstance(c, dict)]
+        all_data = max(candidates, key=len, default=[])
+
+    rows = []
+    seen = set()
+    for point in all_data or []:
+        if not isinstance(point, dict):
+            continue
+        raw_time = point.get("time")
+        dt = _parse_iso_utc(raw_time)
+        if not dt:
+            continue
+        try:
+            price = int(round(float(point.get("value") or 0)))
+        except Exception:
+            continue
+        if price < 1000 or price > 10000000:
+            continue
+        trade_at = dt.isoformat().replace("+00:00", "Z")
+        key = (trade_at, price)
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append({
+            "set_number": ctx["number"],
+            "kream_product_id": ctx["product_id"],
+            "model_number": ctx.get("model_number"),
+            "price_krw": price,
+            "option_name": CHART_OPTION,
+            "trade_at": trade_at,
+            "source_url": ctx.get("source_url"),
+        })
+    return rows
+
+
+
 def _sales_page_requests(ctx, cursor):
     pid = ctx["product_id"]
     detail = ctx.get("source_url") or f"https://kream.co.kr/products/{pid}"
     r = requests.get(
-        f"https://kream.co.kr/api/p/products/{pid}/sales",
+        f"{KREAM_API}/api/p/products/{pid}/sales",
         params={"cursor": cursor, "per_page": 50, "sort": "date_created[desc]"},
         headers=_headers(detail, True),
-        timeout=12,
+        timeout=15,
+    )
+    if not r.ok:
+        raise RuntimeError(f"http {r.status_code}")
+    return r.json() or {}
+
+
+def _chart_requests(ctx):
+    pid = ctx["product_id"]
+    detail = ctx.get("source_url") or f"https://kream.co.kr/products/{pid}"
+    r = requests.get(
+        f"{KREAM_API}/api/p/products/{pid}/chart",
+        headers=_headers(detail, True),
+        timeout=15,
     )
     if not r.ok:
         raise RuntimeError(f"http {r.status_code}")
@@ -378,15 +526,21 @@ def _sales_page_requests(ctx, cursor):
 
 
 def _fetch_sales_browser(ctx, stop_at=None, full_history=True):
-    """Fetch KREAM sales through one same-origin Chromium session."""
+    """Fetch KREAM sales in one Chromium session.
+
+    If the sales API is blocked for the GitHub runner, use the public rendered
+    '체결 거래' rows for actual recent transactions and KREAM's chart endpoint
+    for the historical price chart.
+    """
     try:
         from playwright.sync_api import sync_playwright
     except Exception:
-        return [], False, False
+        return [], [], False, False
 
     pid = ctx["product_id"]
     detail = ctx.get("source_url") or f"https://kream.co.kr/products/{pid}"
     rows = []
+    chart_rows = []
     cursor = 1
     pages = 0
     complete = True
@@ -394,28 +548,67 @@ def _fetch_sales_browser(ctx, stop_at=None, full_history=True):
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
-            context = browser.new_context(locale="ko-KR", user_agent=_headers()["User-Agent"])
+            context = browser.new_context(
+                locale="ko-KR",
+                user_agent=_headers()["User-Agent"],
+                viewport={"width": 1280, "height": 1600},
+            )
             page = context.new_page()
             page.goto(detail, wait_until="domcontentloaded", timeout=30000)
-            page.wait_for_timeout(600)
+            page.wait_for_timeout(1800)
 
+            # Always capture the rendered public trades first. These are actual
+            # transactions shown by KREAM, not current ask/bid prices.
+            try:
+                body = page.locator("body").inner_text(timeout=8000)
+                rows = _visible_trade_rows(body, ctx)
+            except Exception:
+                body = ""
+
+            # KREAM API is served from api.kream.co.kr. APIRequestContext
+            # shares the Chromium session without browser CORS restrictions.
+            try:
+                chart_resp = context.request.get(
+                    f"{KREAM_API}/api/p/products/{pid}/chart",
+                    headers=_headers(detail, True),
+                    timeout=15000,
+                )
+                if chart_resp.ok:
+                    chart_payload = chart_resp.json()
+                    chart_rows = _chart_rows_from_payload(chart_payload, ctx)
+            except Exception:
+                chart_rows = []
+
+            api_rows = []
             while cursor and pages < MAX_HISTORY_PAGES:
                 pages += 1
-                data = page.evaluate(
-                    """async ({pid,cursor}) => {
-                        const u = `/api/p/products/${pid}/sales?cursor=${encodeURIComponent(cursor)}&per_page=50&sort=date_created%5Bdesc%5D`;
-                        const r = await fetch(u, {credentials:'include', headers:{'Accept':'application/json, text/plain, */*'}});
-                        if (!r.ok) return {__error:r.status};
-                        return await r.json();
-                    }""",
-                    {"pid": pid, "cursor": cursor},
-                )
-                if not isinstance(data, dict) or data.get("__error"):
+                try:
+                    sales_resp = context.request.get(
+                        f"{KREAM_API}/api/p/products/{pid}/sales",
+                        params={
+                            "cursor": cursor,
+                            "per_page": 50,
+                            "sort": "date_created[desc]",
+                        },
+                        headers=_headers(detail, True),
+                        timeout=15000,
+                    )
+                    if not sales_resp.ok:
+                        complete = False
+                        break
+                    data = sales_resp.json()
+                except Exception:
                     complete = False
                     break
+
+                if not isinstance(data, dict):
+                    complete = False
+                    break
+
                 items = data.get("items") or []
                 if not items:
                     break
+
                 reached_old = False
                 for item in items:
                     trade_at = item.get("date_created")
@@ -431,8 +624,12 @@ def _fetch_sales_browser(ctx, stop_at=None, full_history=True):
                         price = 0
                     if price < 1000 or price > 10000000:
                         continue
-                    option = str(item.get("option") or ((item.get("product_option") or {}).get("name_display")) or "")
-                    rows.append({
+                    option = str(
+                        item.get("option")
+                        or ((item.get("product_option") or {}).get("name_display"))
+                        or ""
+                    )
+                    api_rows.append({
                         "set_number": ctx["number"],
                         "kream_product_id": pid,
                         "model_number": ctx.get("model_number"),
@@ -441,6 +638,7 @@ def _fetch_sales_browser(ctx, stop_at=None, full_history=True):
                         "trade_at": trade_at,
                         "source_url": detail,
                     })
+
                 if reached_old:
                     break
                 nxt = data.get("next_cursor")
@@ -448,19 +646,35 @@ def _fetch_sales_browser(ctx, stop_at=None, full_history=True):
                     break
                 cursor = nxt
 
+            if api_rows:
+                # API data is authoritative and contains more actual transactions.
+                rows = api_rows
+
             if pages >= MAX_HISTORY_PAGES and cursor:
                 complete = False
+
             browser.close()
     except Exception:
-        return [], False, False
+        return [], [], False, False
 
     rows.sort(key=lambda x: str(x.get("trade_at") or ""), reverse=True)
-    return rows, complete, True
+    chart_rows.sort(key=lambda x: str(x.get("trade_at") or ""))
+    # browser_ok means we successfully obtained at least one useful public data source.
+    browser_ok = bool(rows or chart_rows)
+    return rows, chart_rows, complete, browser_ok
 
 
 def fetch_sales(ctx, full_history=True):
     stop_at = _parse_iso_utc(_latest_stored_trade_at(ctx["number"]))
     rows = []
+    chart_rows = []
+
+    # Fetch KREAM's own chart independently. This lets the historical graph
+    # populate even if sales pagination is temporarily blocked.
+    try:
+        chart_rows = _chart_rows_from_payload(_chart_requests(ctx), ctx)
+    except Exception:
+        chart_rows = []
     complete = True
     used_api = False
     used_browser = False
@@ -473,16 +687,15 @@ def fetch_sales(ctx, full_history=True):
             data = _sales_page_requests(ctx, cursor)
             used_api = True
         except Exception:
-            # If the public API is blocked, use a single browser session for the
-            # entire remaining history instead of launching Chromium per page.
             if not rows:
-                browser_rows, browser_complete, browser_ok = _fetch_sales_browser(
+                browser_rows, browser_chart, browser_complete, browser_ok = _fetch_sales_browser(
                     ctx, stop_at=stop_at, full_history=full_history
                 )
                 if browser_ok:
                     rows = browser_rows
+                    if not chart_rows:
+                        chart_rows = browser_chart
                     complete = browser_complete
-                    used_api = True
                     used_browser = True
                 else:
                     complete = False
@@ -531,7 +744,7 @@ def fetch_sales(ctx, full_history=True):
     if pages >= MAX_HISTORY_PAGES and cursor:
         complete = False
     rows.sort(key=lambda x: str(x.get("trade_at") or ""), reverse=True)
-    return rows, complete, used_api, used_browser
+    return rows, chart_rows, complete, used_api, used_browser
 
 
 def upsert_trades(rows):
@@ -564,6 +777,28 @@ def stored_trades(number, limit=5000):
             TRADES_TABLE,
             {
                 "set_number": f"eq.{n}",
+                "option_name": f"neq.{CHART_OPTION}",
+                "select": "set_number,kream_product_id,model_number,price_krw,option_name,trade_at,source_url",
+                "order": "trade_at.asc",
+                "limit": str(min(max(int(limit), 1), 10000)),
+            },
+            timeout=15,
+        )
+        return r.json() if r.ok else []
+    except Exception:
+        return []
+
+
+def stored_chart_rows(number, limit=10000):
+    if not trades_ready():
+        return []
+    n = _clean_number(number)
+    try:
+        r = rest_get(
+            TRADES_TABLE,
+            {
+                "set_number": f"eq.{n}",
+                "option_name": f"eq.{CHART_OPTION}",
                 "select": "set_number,kream_product_id,model_number,price_krw,option_name,trade_at,source_url",
                 "order": "trade_at.asc",
                 "limit": str(min(max(int(limit), 1), 10000)),
@@ -599,9 +834,11 @@ def sync_set(number, full_history=True, allow_browser=True):
         _patch_watch(n, last_synced_at=_now_iso(), last_status="not_found")
         return {"ok": False, "number": n, "error": "kream_product_not_found"}
 
-    rows, complete, used_api, used_browser = fetch_sales(ctx, full_history=full_history)
+    rows, chart_rows, complete, used_api, used_browser = fetch_sales(ctx, full_history=full_history)
     saved = upsert_trades(rows)
+    chart_saved = upsert_trades(chart_rows)
     history = stored_trades(n, 5000)
+    chart_history = stored_chart_rows(n, 10000)
     latest = history[-1] if history else None
 
     status = "ok" if latest else "no_trades"
@@ -621,6 +858,8 @@ def sync_set(number, full_history=True, allow_browser=True):
         "product_id": ctx.get("product_id"),
         "trade_count": len(history),
         "history_added": saved,
+        "chart_added": chart_saved,
+        "chart_count": len(chart_history),
         "history_complete": bool(complete and used_api),
         "latest": latest,
         "used_browser": used_browser,
@@ -725,6 +964,7 @@ def history_payload(number, limit=5000):
     if not n:
         return {"ok": False, "error": "invalid_set_number", "number": n}
     trades = stored_trades(n, limit)
+    chart_rows = stored_chart_rows(n, 10000)
     recent = sorted(trades, key=lambda x: str(x.get("trade_at") or ""), reverse=True)[:100]
     for row in recent:
         row["trade_date"] = _kst_display(row.get("trade_at"))
@@ -735,7 +975,8 @@ def history_payload(number, limit=5000):
         "items": recent,
         "trade_count": len(trades),
         "latest": latest,
-        "charts": chart_from_trades(trades),
+        "charts": chart_from_trades(chart_rows if chart_rows else trades),
+        "chart_point_count": len(chart_rows),
         "watch_table_ready": watch_ready(),
         "trade_table_ready": trades_ready(),
     }
