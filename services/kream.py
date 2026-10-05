@@ -691,6 +691,7 @@ def _fetch_sales_browser(ctx, stop_at=None, full_history=True):
     Native request headers/parameters stay inside this browser session. No
     hard-coded API call is substituted for an unobserved or login-gated request.
     """
+    ctx["browser_attempted"] = True
     try:
         from playwright.sync_api import sync_playwright
     except Exception as e:
@@ -733,17 +734,30 @@ def _fetch_sales_browser(ctx, stop_at=None, full_history=True):
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
             try:
-                context = browser.new_context(locale="ko-KR", viewport={"width": 1280, "height": 1600})
+                context = browser.new_context(
+                    locale="ko-KR", user_agent=_headers()["User-Agent"],
+                    viewport={"width": 1280, "height": 1600})
                 page = context.new_page()
                 page.on("response", capture_response)
-                navigation = page.goto(detail, wait_until="domcontentloaded", timeout=30000)
+                navigation = None
+                try:
+                    navigation = page.goto(detail, wait_until="domcontentloaded", timeout=30000)
+                except Exception as e:
+                    _api_diagnostic(ctx, "product_navigation", error=e)
                 _api_diagnostic(ctx, "product_page", response=navigation)
-                if navigation is not None and not navigation.ok:
-                    return [], [], False, False
+                # Some responses have an error HTTP status while their rendered
+                # product body remains usable. Read the DOM before deciding.
                 page.wait_for_timeout(1800)
                 body = page.locator("body").inner_text(timeout=8000)
                 rows = _visible_trade_rows(body, ctx)
-                login_required = bool(re.search(r"(?:모든\s*)?시세.*로그인\s*후|로그인.*시세.*확인", body))
+                model_number = str(ctx.get("model_number") or ctx["number"])
+                product_visible = bool(re.search(rf"(?<!\d){re.escape(model_number)}(?!\d)", body))
+                error_page = bool(re.search(r"\b(?:500|502|503)\b|internal server error|bad gateway|peer closed connection", body, re.I))
+                body_state = ("product_rendered" if product_visible or rows or native else
+                              "server_error" if error_page else "other_page" if body.strip() else "blank")
+                # null means the page could not establish whether login is required.
+                login_required = (bool(re.search(r"(?:모든\s*)?시세.*로그인\s*후|로그인.*시세.*확인", body))
+                                  if body_state == "product_rendered" else None)
                 ctx["login_required"] = login_required
                 if _bad_page_text(body):
                     _api_diagnostic(ctx, "product_page_blocked", reason="page_access_restricted")
@@ -751,7 +765,7 @@ def _fetch_sales_browser(ctx, stop_at=None, full_history=True):
 
                 # A visible trade tab may initiate a request when not gated.
                 # Never click through a login prompt or attempt authentication.
-                if "sales" not in native and not login_required:
+                if "sales" not in native and login_required is False:
                     try:
                         tab = page.get_by_text("체결 거래", exact=True)
                         if tab.count() == 1 and tab.is_visible():
@@ -761,6 +775,8 @@ def _fetch_sales_browser(ctx, stop_at=None, full_history=True):
                         _api_diagnostic(ctx, "trade_tab", error=e)
 
                 _api_diagnostic(ctx, "page_observation", login_required=login_required,
+                                body_state=body_state, body_length=len(body),
+                                product_number_visible=product_visible,
                                 native_sales_observed="sales" in observed,
                                 native_chart_observed="chart" in observed,
                                 native_sales_ok="sales" in native,
@@ -813,6 +829,7 @@ def _fetch_sales_browser(ctx, stop_at=None, full_history=True):
 def fetch_sales(ctx, full_history=True, allow_browser=True):
     ctx["diagnostics"] = []
     ctx["browser_sales_api_ok"] = False
+    ctx["browser_attempted"] = False
     ctx["login_required"] = None
     stop_at = None if full_history else _parse_iso_utc(_latest_stored_trade_at(ctx["number"]))
     rows = []
@@ -947,7 +964,12 @@ def sync_set(number, full_history=True, allow_browser=True):
     chart_history = stored_chart_rows(n, 10000)
     latest = history[-1] if history else None
 
-    status = "ok" if latest else "no_trades"
+    refresh_succeeded = bool(rows or chart_rows or (used_api and complete))
+    storage_succeeded = bool(refresh_succeeded and saved == len(rows) and chart_saved == len(chart_rows))
+    ok = refresh_succeeded and storage_succeeded
+    status = ("ok" if ok and complete else "partial_history" if ok else
+              "store_failed" if refresh_succeeded else
+              "refresh_failed_cached" if latest else "refresh_failed")
     _patch_watch(
         n,
         kream_product_id=ctx.get("product_id"),
@@ -958,7 +980,13 @@ def sync_set(number, full_history=True, allow_browser=True):
     )
 
     return {
-        "ok": bool(latest),
+        "ok": ok,
+        "refresh_succeeded": refresh_succeeded,
+        "storage_succeeded": storage_succeeded,
+        "has_stored_trades": bool(latest),
+        "fetched_trade_count": len(rows),
+        "fetched_chart_count": len(chart_rows),
+        "status": status,
         "number": n,
         "model_number": ctx.get("model_number"),
         "product_id": ctx.get("product_id"),
@@ -969,6 +997,7 @@ def sync_set(number, full_history=True, allow_browser=True):
         "history_complete": bool(complete and used_api),
         "latest": latest,
         "used_browser": used_browser,
+        "browser_attempted": ctx.get("browser_attempted", False),
         "used_api": used_api,
         "login_required": ctx.get("login_required"),
         "diagnostics": ctx.get("diagnostics", []),
@@ -1032,16 +1061,21 @@ def sync_watched(limit=8):
 
     results = []
     updated = 0
+    successful = 0
     for row in rows:
         result = sync_set(row.get("set_number"), full_history=True, allow_browser=True)
         results.append(result)
         if result.get("ok"):
-            updated += 1
+            successful += 1
+            if result.get("history_added", 0) or result.get("chart_added", 0):
+                updated += 1
 
     return {
-        "ok": True,
+        "ok": all(result.get("ok") for result in results),
         "requested": len(rows),
         "updated": updated,
+        "successful": successful,
+        "failed": len(results) - successful,
         "seeded": seeded,
         "items": results,
     }
