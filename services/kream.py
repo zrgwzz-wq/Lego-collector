@@ -322,7 +322,7 @@ def _latest_stored_trade_at(number):
     try:
         r = rest_get(
             TRADES_TABLE,
-            {"set_number": f"eq.{n}", "select": "trade_at", "order": "trade_at.desc", "limit": "1"},
+            {"set_number": f"eq.{n}", "option_name": f"neq.{CHART_OPTION}", "select": "trade_at", "order": "trade_at.desc", "limit": "1"},
             timeout=8,
         )
         rows = r.json() if r.ok else []
@@ -498,6 +498,25 @@ def _chart_rows_from_payload(payload, ctx):
 
 
 
+def _api_diagnostic(ctx, kind, response=None, error=None, payload=None):
+    """Keep bounded diagnostics without headers, cookies or response values."""
+    entry = {"kind": kind}
+    if response is not None:
+        entry["status"] = getattr(response, "status_code", getattr(response, "status", None))
+    if error is not None:
+        entry["error"] = f"{type(error).__name__}: {str(error)[:240]}"
+    if isinstance(payload, dict):
+        entry["keys"] = sorted(str(k) for k in payload)[:30]
+        for key in ("items", "charts"):
+            value = payload.get(key)
+            entry[key + "_type"] = type(value).__name__
+            if isinstance(value, (list, dict)):
+                entry[key + "_count"] = len(value)
+    diagnostics = ctx.setdefault("diagnostics", [])
+    if len(diagnostics) < 16:
+        diagnostics.append(entry)
+
+
 def _sales_page_requests(ctx, cursor):
     pid = ctx["product_id"]
     detail = ctx.get("source_url") or f"https://kream.co.kr/products/{pid}"
@@ -507,9 +526,14 @@ def _sales_page_requests(ctx, cursor):
         headers=_headers(detail, True),
         timeout=15,
     )
+    _api_diagnostic(ctx, "sales_requests", response=r)
     if not r.ok:
         raise RuntimeError(f"http {r.status_code}")
-    return r.json() or {}
+    data = r.json() or {}
+    _api_diagnostic(ctx, "sales_requests_payload", payload=data)
+    if not isinstance(data, dict) or "items" not in data:
+        raise ValueError("sales response missing items")
+    return data
 
 
 def _chart_requests(ctx):
@@ -520,9 +544,12 @@ def _chart_requests(ctx):
         headers=_headers(detail, True),
         timeout=15,
     )
+    _api_diagnostic(ctx, "chart_requests", response=r)
     if not r.ok:
         raise RuntimeError(f"http {r.status_code}")
-    return r.json() or {}
+    data = r.json() or {}
+    _api_diagnostic(ctx, "chart_requests_payload", payload=data)
+    return data
 
 
 def _fetch_sales_browser(ctx, stop_at=None, full_history=True):
@@ -573,10 +600,13 @@ def _fetch_sales_browser(ctx, stop_at=None, full_history=True):
                     headers=_headers(detail, True),
                     timeout=15000,
                 )
+                _api_diagnostic(ctx, "chart_browser", response=chart_resp)
                 if chart_resp.ok:
                     chart_payload = chart_resp.json()
+                    _api_diagnostic(ctx, "chart_browser_payload", payload=chart_payload)
                     chart_rows = _chart_rows_from_payload(chart_payload, ctx)
-            except Exception:
+            except Exception as e:
+                _api_diagnostic(ctx, "chart_browser", error=e)
                 chart_rows = []
 
             api_rows = []
@@ -593,20 +623,24 @@ def _fetch_sales_browser(ctx, stop_at=None, full_history=True):
                         headers=_headers(detail, True),
                         timeout=15000,
                     )
+                    _api_diagnostic(ctx, "sales_browser", response=sales_resp)
                     if not sales_resp.ok:
                         complete = False
                         break
                     data = sales_resp.json()
-                except Exception:
+                    _api_diagnostic(ctx, "sales_browser_payload", payload=data)
+                except Exception as e:
+                    _api_diagnostic(ctx, "sales_browser", error=e)
                     complete = False
                     break
 
-                if not isinstance(data, dict):
+                if not isinstance(data, dict) or "items" not in data:
                     complete = False
                     break
 
                 items = data.get("items") or []
                 if not items:
+                    cursor = None
                     break
 
                 reached_old = False
@@ -643,9 +677,11 @@ def _fetch_sales_browser(ctx, stop_at=None, full_history=True):
                     break
                 nxt = data.get("next_cursor")
                 if not full_history or not nxt:
+                    cursor = None
                     break
                 cursor = nxt
 
+            ctx["browser_sales_api_ok"] = bool(complete and pages and isinstance(data, dict) and "items" in data) if "data" in locals() else False
             if api_rows:
                 # API data is authoritative and contains more actual transactions.
                 rows = api_rows
@@ -654,8 +690,9 @@ def _fetch_sales_browser(ctx, stop_at=None, full_history=True):
                 complete = False
 
             browser.close()
-    except Exception:
-        return [], [], False, False
+    except Exception as e:
+        _api_diagnostic(ctx, "browser_session", error=e)
+        return rows, chart_rows, False, bool(rows or chart_rows)
 
     rows.sort(key=lambda x: str(x.get("trade_at") or ""), reverse=True)
     chart_rows.sort(key=lambda x: str(x.get("trade_at") or ""))
@@ -665,7 +702,10 @@ def _fetch_sales_browser(ctx, stop_at=None, full_history=True):
 
 
 def fetch_sales(ctx, full_history=True):
-    stop_at = _parse_iso_utc(_latest_stored_trade_at(ctx["number"]))
+    ctx["diagnostics"] = []
+    ctx["browser_sales_api_ok"] = False
+    # A backfill must reach the oldest API page, even when recent public rows exist.
+    stop_at = None if full_history else _parse_iso_utc(_latest_stored_trade_at(ctx["number"]))
     rows = []
     chart_rows = []
 
@@ -673,7 +713,8 @@ def fetch_sales(ctx, full_history=True):
     # populate even if sales pagination is temporarily blocked.
     try:
         chart_rows = _chart_rows_from_payload(_chart_requests(ctx), ctx)
-    except Exception:
+    except Exception as e:
+        _api_diagnostic(ctx, "chart_requests", error=e)
         chart_rows = []
     complete = True
     used_api = False
@@ -686,7 +727,8 @@ def fetch_sales(ctx, full_history=True):
         try:
             data = _sales_page_requests(ctx, cursor)
             used_api = True
-        except Exception:
+        except Exception as e:
+            _api_diagnostic(ctx, "sales_requests", error=e)
             if not rows:
                 browser_rows, browser_chart, browser_complete, browser_ok = _fetch_sales_browser(
                     ctx, stop_at=stop_at, full_history=full_history
@@ -697,6 +739,7 @@ def fetch_sales(ctx, full_history=True):
                         chart_rows = browser_chart
                     complete = browser_complete
                     used_browser = True
+                    used_api = bool(ctx.get("browser_sales_api_ok"))
                 else:
                     complete = False
                     rows = _public_html_trades(ctx)
@@ -706,6 +749,7 @@ def fetch_sales(ctx, full_history=True):
 
         items = data.get("items") or []
         if not items:
+            cursor = None
             break
 
         reached_old = False
@@ -738,6 +782,7 @@ def fetch_sales(ctx, full_history=True):
             break
         nxt = data.get("next_cursor")
         if not full_history or not nxt:
+            cursor = None
             break
         cursor = nxt
 
@@ -863,6 +908,8 @@ def sync_set(number, full_history=True, allow_browser=True):
         "history_complete": bool(complete and used_api),
         "latest": latest,
         "used_browser": used_browser,
+        "used_api": used_api,
+        "diagnostics": ctx.get("diagnostics", []),
         "source_url": ctx.get("source_url"),
     }
 
