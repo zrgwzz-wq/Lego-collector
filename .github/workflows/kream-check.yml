@@ -47,6 +47,7 @@ jobs:
           import json
           import os
           import re
+          from html import escape
           from pathlib import Path
           from services.kream import sync_set
 
@@ -59,21 +60,78 @@ jobs:
           failed = False
           results = []
           for number in numbers:
-              result = sync_set(number, full_history=True, allow_browser=True)
+              try:
+                  result = sync_set(number, full_history=True, allow_browser=True)
+              except Exception as exc:
+                  result = {"ok": False, "number": number, "status": "operation_error",
+                            "diagnostics": [{"kind": "check_operation", "error": type(exc).__name__}]}
               results.append((number, result))
               print(json.dumps({"kream_check": result}, ensure_ascii=False, indent=2), flush=True)
               failed = failed or not result.get("ok", False)
+
+          def cell(value):
+              if value is None:
+                  return "확인 불가"
+              return escape(str(value)[:450]).replace("|", "&#124;").replace("\r", " ").replace("\n", " ")
+
+          def yes_no(value):
+              return "확인 불가" if value is None else "예" if value else "아니오"
+
           summary = "## KREAM 수집·저장 검사 (Windows)\n\n"
-          summary += "| 세트 번호 | 이번 수집 체결 | 이번 수집 차트 | DB 저장 확인 | 전체 이력 완료 | 로그인 안내 | 상태 |\n"
-          summary += "| --- | --- | --- | --- | --- | --- | --- |\n"
+          summary += "새 데이터를 읽지 못한 경우 DB 저장은 확인할 수 없습니다. 기존 데이터 존재와 새 수집 성공은 별도로 표시합니다.\n\n"
           for number, result in results:
-              stored = "예" if result.get("storage_succeeded") else "아니오"
-              complete = "예" if result.get("history_complete") else "아니오"
-              login = result.get("login_required")
-              login_text = "확인 불가" if login is None else "있음" if login else "없음"
-              status = str(result.get("status") or result.get("error") or "unknown").replace("|", "/").replace("\n", " ")
-              summary += f"| {number} | {result.get('fetched_trade_count', 0)} | {result.get('fetched_chart_count', 0)} | {stored} | {complete} | {login_text} | {status} |\n"
-          summary += "\nDB 저장 확인과 전체 이력 완료는 별도 항목입니다. 최근 체결 일부만 저장한 경우 전체 이력 완료는 '아니오'입니다.\n"
+              diagnostics = result.get("diagnostics") or []
+              observation = next((d for d in reversed(diagnostics) if d.get("kind") == "page_observation"), {})
+              page_status = next((d.get("status") for d in reversed(diagnostics)
+                                  if d.get("kind") == "product_page" and d.get("status") is not None), None)
+              if result.get("storage_succeeded"):
+                  stored = "성공"
+              elif result.get("refresh_succeeded"):
+                  stored = "실패"
+              elif result.get("refresh_succeeded") is False:
+                  stored = "미확인 (새 데이터 없음)"
+              else:
+                  stored = "미확인"
+              status = result.get("status") or result.get("error") or "unknown"
+              labels = {"ok": "수집·저장 성공", "partial_history": "일부 체결 수집·저장",
+                        "refresh_failed_cached": "새 수집 실패, 기존 데이터 있음",
+                        "refresh_failed": "새 수집 실패", "store_failed": "수집 후 DB 저장 실패",
+                        "operation_error": "검사 중 오류"}
+              summary += f"### 세트 {number}\n\n| 항목 | 결과 |\n| --- | --- |\n"
+              fields = [
+                  ("검사 결과", labels.get(status, status)),
+                  ("KREAM 상품 번호", result.get("product_id")),
+                  ("KREAM 모델 번호", result.get("model_number")),
+                  ("이번 수집 체결 / 차트", f"{result.get('fetched_trade_count', 0)}건 / {result.get('fetched_chart_count', 0)}개"),
+                  ("기존 포함 저장 체결", result.get("trade_count")),
+                  ("이번 DB 저장", stored),
+                  ("상품 페이지 HTTP", page_status),
+                  ("화면 상태", observation.get("body_state")),
+                  ("화면 글자 수", observation.get("body_length")),
+                  ("화면에 모델 번호 있음", yes_no(observation.get("product_number_visible"))),
+                  ("브라우저 실행 시도", yes_no(result.get("browser_attempted"))),
+                  ("화면의 체결 API 관측", yes_no(observation.get("native_sales_observed"))),
+                  ("화면의 차트 API 관측", yes_no(observation.get("native_chart_observed"))),
+                  ("로그인 안내", yes_no(result.get("login_required"))),
+                  ("전체 이력 완료", yes_no(result.get("history_complete"))),
+                  ("원본 상태", status),
+              ]
+              for label, value in fields:
+                  summary += f"| {cell(label)} | {cell(value)} |\n"
+              summary += "\n**요청·브라우저 진단**\n\n| 단계 | 기록 |\n| --- | --- |\n"
+              for diagnostic in diagnostics:
+                  details = []
+                  if diagnostic.get("status") is not None:
+                      details.append("HTTP " + str(diagnostic["status"]))
+                  for key in ("error", "reason", "error_body"):
+                      if diagnostic.get(key):
+                          details.append(str(diagnostic[key]))
+                  if details:
+                      summary += f"| {cell(diagnostic.get('kind', 'unknown'))} | {cell('; '.join(details))} |\n"
+              if not any(d.get("status") is not None or d.get("error") or d.get("reason") or d.get("error_body") for d in diagnostics):
+                  summary += "| 진단 기록 | 없음 |\n"
+              summary += "\n"
+          summary += "전체 이력·차트 완료는 별도 항목입니다. 일부 체결만 저장된 경우 전체 이력 완료는 '아니오'입니다.\n"
           Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text(summary, encoding="utf-8")
           raise SystemExit(1 if failed else 0)
           PY
