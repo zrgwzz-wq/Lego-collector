@@ -8,10 +8,16 @@ on:
 permissions:
   contents: read
 
+env:
+  PYTHONUTF8: "1"
+
 jobs:
   sync:
-    runs-on: ubuntu-24.04
+    runs-on: windows-2025
     timeout-minutes: 35
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - name: Checkout
@@ -26,7 +32,7 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install beautifulsoup4 playwright
-          python -m playwright install --with-deps chromium
+          python -m playwright install chromium
 
       - name: Sync catalog, Korean data, search aliases and KREAM trades
         env:

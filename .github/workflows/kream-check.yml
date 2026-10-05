@@ -6,16 +6,22 @@ on:
       numbers:
         description: "LEGO set numbers (comma separated, up to 3)"
         required: true
-        default: "10305"
+        default: "10305,76218"
         type: string
 
 permissions:
   contents: read
 
+env:
+  PYTHONUTF8: "1"
+
 jobs:
   kream-check:
-    runs-on: ubuntu-24.04
+    runs-on: windows-2025
     timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -29,7 +35,7 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install playwright
-          python -m playwright install --with-deps chromium
+          python -m playwright install chromium
 
       - name: Check KREAM only
         env:
@@ -41,6 +47,7 @@ jobs:
           import json
           import os
           import re
+          from pathlib import Path
           from services.kream import sync_set
 
           numbers = list(dict.fromkeys(
@@ -50,9 +57,23 @@ jobs:
               raise SystemExit("Enter 1 to 3 LEGO set numbers, separated by commas.")
 
           failed = False
+          results = []
           for number in numbers:
               result = sync_set(number, full_history=True, allow_browser=True)
+              results.append((number, result))
               print(json.dumps({"kream_check": result}, ensure_ascii=False, indent=2), flush=True)
               failed = failed or not result.get("ok", False)
+          summary = "## KREAM 수집·저장 검사 (Windows)\n\n"
+          summary += "| 세트 번호 | 이번 수집 체결 | 이번 수집 차트 | DB 저장 확인 | 전체 이력 완료 | 로그인 안내 | 상태 |\n"
+          summary += "| --- | --- | --- | --- | --- | --- | --- |\n"
+          for number, result in results:
+              stored = "예" if result.get("storage_succeeded") else "아니오"
+              complete = "예" if result.get("history_complete") else "아니오"
+              login = result.get("login_required")
+              login_text = "확인 불가" if login is None else "있음" if login else "없음"
+              status = str(result.get("status") or result.get("error") or "unknown").replace("|", "/").replace("\n", " ")
+              summary += f"| {number} | {result.get('fetched_trade_count', 0)} | {result.get('fetched_chart_count', 0)} | {stored} | {complete} | {login_text} | {status} |\n"
+          summary += "\nDB 저장 확인과 전체 이력 완료는 별도 항목입니다. 최근 체결 일부만 저장한 경우 전체 이력 완료는 '아니오'입니다.\n"
+          Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text(summary, encoding="utf-8")
           raise SystemExit(1 if failed else 0)
           PY
