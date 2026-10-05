@@ -1,0 +1,58 @@
+name: LEGO KREAM check
+
+on:
+  workflow_dispatch:
+    inputs:
+      numbers:
+        description: "LEGO set numbers (comma separated, up to 3)"
+        required: true
+        default: "10305"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  kream-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Check KREAM only
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          KREAM_SET_NUMBERS: ${{ inputs.numbers }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+          from services.kream import sync_set
+
+          numbers = list(dict.fromkeys(
+              n for n in re.split(r"[,\s]+", os.environ["KREAM_SET_NUMBERS"].strip()) if n
+          ))
+          if not numbers or len(numbers) > 3 or any(not re.fullmatch(r"\d{4,7}", n) for n in numbers):
+              raise SystemExit("Enter 1 to 3 LEGO set numbers, separated by commas.")
+
+          failed = False
+          for number in numbers:
+              result = sync_set(number, full_history=True, allow_browser=True)
+              print(json.dumps({"kream_check": result}, ensure_ascii=False, indent=2), flush=True)
+              failed = failed or not result.get("ok", False)
+          raise SystemExit(1 if failed else 0)
+          PY
