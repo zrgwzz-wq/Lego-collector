@@ -1,7 +1,7 @@
 import re
 import time
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
 import requests
 
@@ -498,13 +498,35 @@ def _chart_rows_from_payload(payload, ctx):
 
 
 
-def _api_diagnostic(ctx, kind, response=None, error=None, payload=None):
-    """Keep bounded diagnostics without headers, cookies or response values."""
+def _redact_diagnostic(value):
+    text = str(value or "")
+    text = re.sub(r"(?i)bearer\s+\S+", "Bearer [redacted]", text)
+    text = re.sub(r"(?i)((?:token|cookie|authorization|session|password|secret|api_key)[\w-]*[\s\"':=]+)[^\s,;&\"']+", r"\1[redacted]", text)
+    text = re.sub(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", "[redacted]", text)
+    return text[:240]
+
+
+def _api_diagnostic(ctx, kind, response=None, error=None, payload=None, **metadata):
+    """Log bounded status/schema/error summaries, never authentication headers."""
     entry = {"kind": kind}
+    entry.update(metadata)
     if response is not None:
         entry["status"] = getattr(response, "status_code", getattr(response, "status", None))
+        headers = getattr(response, "headers", {}) or {}
+        entry["content_type"] = headers.get("content-type", "")[:80]
+        if entry["status"] and entry["status"] >= 400:
+            try:
+                failure = response.json()
+                if isinstance(failure, dict):
+                    entry["error_keys"] = sorted(str(k) for k in failure)[:20]
+                    # Only server error descriptions are logged, not arbitrary payloads.
+                    for key in ("code", "error", "message", "detail"):
+                        if isinstance(failure.get(key), (str, int)):
+                            entry[key] = _redact_diagnostic(failure[key])
+            except Exception:
+                entry["error_body"] = "non_json"
     if error is not None:
-        entry["error"] = f"{type(error).__name__}: {str(error)[:240]}"
+        entry["error"] = _redact_diagnostic(f"{type(error).__name__}: {error}")
     if isinstance(payload, dict):
         entry["keys"] = sorted(str(k) for k in payload)[:30]
         for key in ("items", "charts"):
@@ -513,7 +535,7 @@ def _api_diagnostic(ctx, kind, response=None, error=None, payload=None):
             if isinstance(value, (list, dict)):
                 entry[key + "_count"] = len(value)
     diagnostics = ctx.setdefault("diagnostics", [])
-    if len(diagnostics) < 16:
+    if len(diagnostics) < 24:
         diagnostics.append(entry)
 
 
@@ -552,242 +574,280 @@ def _chart_requests(ctx):
     return data
 
 
-def _fetch_sales_browser(ctx, stop_at=None, full_history=True):
-    """Fetch KREAM sales in one Chromium session.
+def _native_endpoint_kind(url, product_id):
+    parsed = urlparse(str(url or ""))
+    if parsed.scheme != "https" or parsed.hostname not in ("kream.co.kr", "api.kream.co.kr"):
+        return None
+    if parsed.username or parsed.password or not parsed.path.startswith("/api/"):
+        return None
+    match = re.search(rf"/products/{int(product_id)}/(sales|chart)/?$", parsed.path)
+    return match.group(1) if match else None
 
-    If the sales API is blocked for the GitHub runner, use the public rendered
-    '체결 거래' rows for actual recent transactions and KREAM's chart endpoint
-    for the historical price chart.
+
+def _native_request_metadata(request):
+    parsed = urlparse(request.url)
+    headers = request.all_headers()
+    return {
+        "endpoint": f"{parsed.scheme}://{parsed.netloc}{parsed.path}",
+        "parameter_names": sorted({k for k, _ in parse_qsl(parsed.query)})[:30],
+        "header_names": sorted(k for k in headers if k.lower().startswith("x-kream-"))[:20],
+        "api_version": _redact_diagnostic(headers.get("x-kream-api-version", "")),
+    }
+
+
+def _sales_rows_from_payload(payload, ctx, stop_at=None):
+    if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+        raise ValueError("sales response missing an items list")
+    rows = []
+    reached_old = False
+    invalid = 0
+    for item in payload["items"]:
+        if not isinstance(item, dict):
+            invalid += 1
+            continue
+        if str(item.get("product_id", ctx["product_id"])) != str(ctx["product_id"]):
+            invalid += 1
+            continue
+        dt = _parse_iso_utc(item.get("date_created"))
+        if not dt:
+            invalid += 1
+            continue
+        if stop_at and dt <= stop_at:
+            reached_old = True
+            continue
+        try:
+            price = int(round(float(item.get("price") or 0)))
+        except (TypeError, ValueError, OverflowError):
+            price = 0
+        if not 1000 <= price <= 10000000:
+            invalid += 1
+            continue
+        option = item.get("option")
+        product_option = item.get("product_option")
+        if not option and isinstance(product_option, dict):
+            option = product_option.get("name_display")
+        rows.append({
+            "set_number": ctx["number"],
+            "kream_product_id": ctx["product_id"],
+            "model_number": ctx.get("model_number"),
+            "price_krw": price,
+            "option_name": str(option or ""),
+            "trade_at": dt.isoformat().replace("+00:00", "Z"),
+            "source_url": ctx.get("source_url"),
+        })
+    return rows, reached_old, invalid
+
+
+def _collect_sales_pages(ctx, first_payload, fetch_next, full_history, stop_at):
+    """Only mark history complete after exhausting valid API pages."""
+    rows = []
+    payload = first_payload
+    seen_cursors = set()
+    invalid_count = 0
+    received_count = 0
+    for page_index in range(MAX_HISTORY_PAGES):
+        try:
+            page_rows, reached_old, invalid = _sales_rows_from_payload(payload, ctx, stop_at)
+        except Exception as e:
+            _api_diagnostic(ctx, "sales_schema", error=e)
+            return rows, False
+        rows.extend(page_rows)
+        invalid_count += invalid
+        received_count += len(payload["items"])
+        next_cursor = payload.get("next_cursor")
+        if not next_cursor:
+            total = payload.get("total")
+            # A truncated response with no usable cursor is not full history.
+            try:
+                truncated = total is not None and int(total) > received_count
+            except (ValueError, TypeError):
+                truncated = False
+            complete = bool(full_history and not invalid_count and not truncated)
+            if not complete:
+                _api_diagnostic(ctx, "sales_partial", received=received_count,
+                                invalid_rows=invalid_count, truncated=truncated)
+            return rows, complete
+        if reached_old or not full_history:
+            return rows, False
+        cursor_key = str(next_cursor)
+        if cursor_key in seen_cursors or not payload["items"]:
+            _api_diagnostic(ctx, "sales_pagination", error=ValueError("cursor repeated or empty page with next_cursor"))
+            return rows, False
+        seen_cursors.add(cursor_key)
+        if page_index + 1 >= MAX_HISTORY_PAGES:
+            _api_diagnostic(ctx, "sales_pagination", error=ValueError("history page limit reached"))
+            return rows, False
+        try:
+            payload = fetch_next(next_cursor)
+        except Exception as e:
+            _api_diagnostic(ctx, "sales_next_page", error=e)
+            return rows, False
+    return rows, False
+
+
+def _fetch_sales_browser(ctx, stop_at=None, full_history=True):
+    """Read the requests/responses made by the actual anonymous product page.
+
+    Native request headers/parameters stay inside this browser session. No
+    hard-coded API call is substituted for an unobserved or login-gated request.
     """
     try:
         from playwright.sync_api import sync_playwright
-    except Exception:
+    except Exception as e:
+        _api_diagnostic(ctx, "browser_import", error=e)
         return [], [], False, False
 
     pid = ctx["product_id"]
     detail = ctx.get("source_url") or f"https://kream.co.kr/products/{pid}"
+    native = {}
+    observed = set()
     rows = []
     chart_rows = []
-    cursor = 1
-    pages = 0
-    complete = True
+    complete = False
+    browser = None
+
+    def capture_response(response):
+        kind = _native_endpoint_kind(response.url, pid)
+        if not kind:
+            return
+        observed.add(kind)
+        try:
+            request = response.request
+            if request.method != "GET":
+                return
+            _api_diagnostic(ctx, f"{kind}_page_response", response=response,
+                            **_native_request_metadata(request))
+            if not response.ok:
+                return
+            payload = response.json()
+            _api_diagnostic(ctx, f"{kind}_page_payload", payload=payload)
+            valid = (isinstance(payload, dict) and
+                     (isinstance(payload.get("items"), list) if kind == "sales" else "charts" in payload))
+            if valid:
+                # Prefer the first sales page. The page can request it repeatedly.
+                native.setdefault(kind, {"payload": payload, "request": request})
+        except Exception as e:
+            _api_diagnostic(ctx, f"{kind}_page_response", error=e)
 
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
-            context = browser.new_context(
-                locale="ko-KR",
-                user_agent=_headers()["User-Agent"],
-                viewport={"width": 1280, "height": 1600},
-            )
-            page = context.new_page()
-            page.goto(detail, wait_until="domcontentloaded", timeout=30000)
-            page.wait_for_timeout(1800)
-
-            # Always capture the rendered public trades first. These are actual
-            # transactions shown by KREAM, not current ask/bid prices.
             try:
+                context = browser.new_context(locale="ko-KR", viewport={"width": 1280, "height": 1600})
+                page = context.new_page()
+                page.on("response", capture_response)
+                navigation = page.goto(detail, wait_until="domcontentloaded", timeout=30000)
+                _api_diagnostic(ctx, "product_page", response=navigation)
+                if navigation is not None and not navigation.ok:
+                    return [], [], False, False
+                page.wait_for_timeout(1800)
                 body = page.locator("body").inner_text(timeout=8000)
                 rows = _visible_trade_rows(body, ctx)
-            except Exception:
-                body = ""
+                login_required = bool(re.search(r"(?:모든\s*)?시세.*로그인\s*후|로그인.*시세.*확인", body))
+                ctx["login_required"] = login_required
+                if _bad_page_text(body):
+                    _api_diagnostic(ctx, "product_page_blocked", reason="page_access_restricted")
+                    return rows, [], False, bool(rows)
 
-            # KREAM API is served from api.kream.co.kr. APIRequestContext
-            # shares the Chromium session without browser CORS restrictions.
-            try:
-                chart_resp = context.request.get(
-                    f"{KREAM_API}/api/p/products/{pid}/chart",
-                    headers=_headers(detail, True),
-                    timeout=15000,
-                )
-                _api_diagnostic(ctx, "chart_browser", response=chart_resp)
-                if chart_resp.ok:
-                    chart_payload = chart_resp.json()
-                    _api_diagnostic(ctx, "chart_browser_payload", payload=chart_payload)
-                    chart_rows = _chart_rows_from_payload(chart_payload, ctx)
-            except Exception as e:
-                _api_diagnostic(ctx, "chart_browser", error=e)
-                chart_rows = []
-
-            api_rows = []
-            while cursor and pages < MAX_HISTORY_PAGES:
-                pages += 1
-                try:
-                    sales_resp = context.request.get(
-                        f"{KREAM_API}/api/p/products/{pid}/sales",
-                        params={
-                            "cursor": cursor,
-                            "per_page": 50,
-                            "sort": "date_created[desc]",
-                        },
-                        headers=_headers(detail, True),
-                        timeout=15000,
-                    )
-                    _api_diagnostic(ctx, "sales_browser", response=sales_resp)
-                    if not sales_resp.ok:
-                        complete = False
-                        break
-                    data = sales_resp.json()
-                    _api_diagnostic(ctx, "sales_browser_payload", payload=data)
-                except Exception as e:
-                    _api_diagnostic(ctx, "sales_browser", error=e)
-                    complete = False
-                    break
-
-                if not isinstance(data, dict) or "items" not in data:
-                    complete = False
-                    break
-
-                items = data.get("items") or []
-                if not items:
-                    cursor = None
-                    break
-
-                reached_old = False
-                for item in items:
-                    trade_at = item.get("date_created")
-                    dt = _parse_iso_utc(trade_at)
-                    if not dt:
-                        continue
-                    if stop_at and dt <= stop_at:
-                        reached_old = True
-                        continue
+                # A visible trade tab may initiate a request when not gated.
+                # Never click through a login prompt or attempt authentication.
+                if "sales" not in native and not login_required:
                     try:
-                        price = int(round(float(item.get("price") or 0)))
-                    except Exception:
-                        price = 0
-                    if price < 1000 or price > 10000000:
-                        continue
-                    option = str(
-                        item.get("option")
-                        or ((item.get("product_option") or {}).get("name_display"))
-                        or ""
-                    )
-                    api_rows.append({
-                        "set_number": ctx["number"],
-                        "kream_product_id": pid,
-                        "model_number": ctx.get("model_number"),
-                        "price_krw": price,
-                        "option_name": option,
-                        "trade_at": trade_at,
-                        "source_url": detail,
-                    })
+                        tab = page.get_by_text("체결 거래", exact=True)
+                        if tab.count() == 1 and tab.is_visible():
+                            tab.click(timeout=3000)
+                            page.wait_for_timeout(1200)
+                    except Exception as e:
+                        _api_diagnostic(ctx, "trade_tab", error=e)
 
-                if reached_old:
-                    break
-                nxt = data.get("next_cursor")
-                if not full_history or not nxt:
-                    cursor = None
-                    break
-                cursor = nxt
+                _api_diagnostic(ctx, "page_observation", login_required=login_required,
+                                native_sales_observed="sales" in observed,
+                                native_chart_observed="chart" in observed,
+                                native_sales_ok="sales" in native,
+                                native_chart_ok="chart" in native,
+                                visible_trade_count=len(rows))
+                if "chart" in native:
+                    chart_rows = _chart_rows_from_payload(native["chart"]["payload"], ctx)
+                if "sales" in native:
+                    sample = native["sales"]
+                    request = sample["request"]
+                    parsed = urlparse(request.url)
+                    first_parameters = dict(parse_qsl(parsed.query, keep_blank_values=True))
+                    first_cursor = first_parameters.get("cursor", "1")
+                    if first_cursor not in ("", "1"):
+                        _api_diagnostic(ctx, "sales_partial", reason="observed page is not first cursor")
+                        api_rows, _, _ = _sales_rows_from_payload(sample["payload"], ctx, stop_at)
+                    else:
+                        headers = {k: v for k, v in request.all_headers().items()
+                                   if not k.startswith(":") and k.lower() not in
+                                   ("host", "content-length", "connection", "cookie")}
 
-            ctx["browser_sales_api_ok"] = bool(complete and pages and isinstance(data, dict) and "items" in data) if "data" in locals() else False
-            if api_rows:
-                # API data is authoritative and contains more actual transactions.
-                rows = api_rows
+                        def fetch_next(cursor):
+                            pairs = [(k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True)
+                                     if k != "cursor"]
+                            pairs.append(("cursor", str(cursor)))
+                            url = urlunparse(parsed._replace(query=urlencode(pairs), fragment=""))
+                            response = context.request.get(url, headers=headers, timeout=15000)
+                            _api_diagnostic(ctx, "sales_browser_next", response=response)
+                            if not response.ok:
+                                raise RuntimeError(f"http {response.status}")
+                            return response.json()
 
-            if pages >= MAX_HISTORY_PAGES and cursor:
-                complete = False
-
-            browser.close()
+                        api_rows, complete = _collect_sales_pages(
+                            ctx, sample["payload"], fetch_next, full_history, stop_at)
+                    ctx["browser_sales_api_ok"] = True
+                    if api_rows:
+                        rows = api_rows
+            finally:
+                if browser is not None:
+                    browser.close()
     except Exception as e:
         _api_diagnostic(ctx, "browser_session", error=e)
-        return rows, chart_rows, False, bool(rows or chart_rows)
+        complete = False
 
     rows.sort(key=lambda x: str(x.get("trade_at") or ""), reverse=True)
     chart_rows.sort(key=lambda x: str(x.get("trade_at") or ""))
-    # browser_ok means we successfully obtained at least one useful public data source.
-    browser_ok = bool(rows or chart_rows)
-    return rows, chart_rows, complete, browser_ok
+    return rows, chart_rows, complete, bool(rows or chart_rows or ctx.get("browser_sales_api_ok"))
 
 
-def fetch_sales(ctx, full_history=True):
+def fetch_sales(ctx, full_history=True, allow_browser=True):
     ctx["diagnostics"] = []
     ctx["browser_sales_api_ok"] = False
-    # A backfill must reach the oldest API page, even when recent public rows exist.
+    ctx["login_required"] = None
     stop_at = None if full_history else _parse_iso_utc(_latest_stored_trade_at(ctx["number"]))
     rows = []
     chart_rows = []
+    complete = False
+    used_api = False
+    used_browser = False
 
-    # Fetch KREAM's own chart independently. This lets the historical graph
-    # populate even if sales pagination is temporarily blocked.
+    # Keep the existing fast API route, but native page responses are the fallback.
     try:
         chart_rows = _chart_rows_from_payload(_chart_requests(ctx), ctx)
     except Exception as e:
         _api_diagnostic(ctx, "chart_requests", error=e)
-        chart_rows = []
-    complete = True
-    used_api = False
-    used_browser = False
-    cursor = 1
-    pages = 0
+    try:
+        first_payload = _sales_page_requests(ctx, 1)
+        used_api = True
+        rows, complete = _collect_sales_pages(
+            ctx, first_payload, lambda cursor: _sales_page_requests(ctx, cursor), full_history, stop_at)
+    except Exception as e:
+        _api_diagnostic(ctx, "sales_requests", error=e)
 
-    while cursor and pages < MAX_HISTORY_PAGES:
-        pages += 1
-        try:
-            data = _sales_page_requests(ctx, cursor)
+    if allow_browser and (not used_api or not complete or not chart_rows):
+        browser_rows, browser_chart, browser_complete, browser_ok = _fetch_sales_browser(
+            ctx, stop_at=stop_at, full_history=full_history)
+        used_browser = browser_ok
+        if browser_chart:
+            chart_rows = browser_chart
+        if ctx.get("browser_sales_api_ok") and not complete and (browser_complete or len(browser_rows) >= len(rows)):
+            rows = browser_rows
+            complete = browser_complete
             used_api = True
-        except Exception as e:
-            _api_diagnostic(ctx, "sales_requests", error=e)
-            if not rows:
-                browser_rows, browser_chart, browser_complete, browser_ok = _fetch_sales_browser(
-                    ctx, stop_at=stop_at, full_history=full_history
-                )
-                if browser_ok:
-                    rows = browser_rows
-                    if not chart_rows:
-                        chart_rows = browser_chart
-                    complete = browser_complete
-                    used_browser = True
-                    used_api = bool(ctx.get("browser_sales_api_ok"))
-                else:
-                    complete = False
-                    rows = _public_html_trades(ctx)
-            else:
-                complete = False
-            break
-
-        items = data.get("items") or []
-        if not items:
-            cursor = None
-            break
-
-        reached_old = False
-        for item in items:
-            trade_at = item.get("date_created")
-            dt = _parse_iso_utc(trade_at)
-            if not dt:
-                continue
-            if stop_at and dt <= stop_at:
-                reached_old = True
-                continue
-            try:
-                price = int(round(float(item.get("price") or 0)))
-            except Exception:
-                price = 0
-            if price < 1000 or price > 10000000:
-                continue
-            option = str(item.get("option") or ((item.get("product_option") or {}).get("name_display")) or "")
-            rows.append({
-                "set_number": ctx["number"],
-                "kream_product_id": ctx["product_id"],
-                "model_number": ctx.get("model_number"),
-                "price_krw": price,
-                "option_name": option,
-                "trade_at": trade_at,
-                "source_url": ctx.get("source_url"),
-            })
-
-        if reached_old:
-            break
-        nxt = data.get("next_cursor")
-        if not full_history or not nxt:
-            cursor = None
-            break
-        cursor = nxt
-
-    if pages >= MAX_HISTORY_PAGES and cursor:
-        complete = False
+        elif not rows:
+            rows = browser_rows
+    if not rows and not used_api:
+        rows = _public_html_trades(ctx)
     rows.sort(key=lambda x: str(x.get("trade_at") or ""), reverse=True)
     return rows, chart_rows, complete, used_api, used_browser
 
@@ -879,7 +939,8 @@ def sync_set(number, full_history=True, allow_browser=True):
         _patch_watch(n, last_synced_at=_now_iso(), last_status="not_found")
         return {"ok": False, "number": n, "error": "kream_product_not_found"}
 
-    rows, chart_rows, complete, used_api, used_browser = fetch_sales(ctx, full_history=full_history)
+    rows, chart_rows, complete, used_api, used_browser = fetch_sales(
+        ctx, full_history=full_history, allow_browser=allow_browser)
     saved = upsert_trades(rows)
     chart_saved = upsert_trades(chart_rows)
     history = stored_trades(n, 5000)
@@ -909,6 +970,7 @@ def sync_set(number, full_history=True, allow_browser=True):
         "latest": latest,
         "used_browser": used_browser,
         "used_api": used_api,
+        "login_required": ctx.get("login_required"),
         "diagnostics": ctx.get("diagnostics", []),
         "source_url": ctx.get("source_url"),
     }
